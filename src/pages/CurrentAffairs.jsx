@@ -5,6 +5,9 @@ import { useToast } from '../components/Toast';
 
 const CATEGORIES_CA = ['politics', 'economy', 'science', 'sports', 'international', 'environment', 'defence', 'awards', 'other'];
 
+const nowDate = () => new Date().toISOString().slice(0, 10);
+const nowTime = () => new Date().toTimeString().slice(0, 5); // HH:MM
+
 const EMPTY_FORM = {
   title: { en: '', hi: '' },
   summary: { en: '', hi: '' },
@@ -13,7 +16,8 @@ const EMPTY_FORM = {
   tags: '',
   source: '',
   sourceUrl: '',
-  publishDate: new Date().toISOString().slice(0, 10),
+  publishDate: nowDate(),
+  publishTime: nowTime(),
   isPublished: false,
 };
 
@@ -106,8 +110,11 @@ function AffairForm({ form, setForm, onSubmit, loading }) {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Publish Date</label>
-          <input type="date" className={input} value={form.publishDate} onChange={(e) => setField('publishDate', e.target.value)} />
+          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Publish Date & Time</label>
+          <div className="flex gap-2">
+            <input type="date" className={input} value={form.publishDate} onChange={(e) => setField('publishDate', e.target.value)} />
+            <input type="time" className={`${input} w-32`} value={form.publishTime} onChange={(e) => setField('publishTime', e.target.value)} />
+          </div>
         </div>
       </div>
 
@@ -190,6 +197,8 @@ export default function CurrentAffairs() {
 
   const openEdit = (item) => {
     setEditTarget(item);
+    const existingDate = item.publishedAt || item.publishDate;
+    const dateObj = existingDate ? new Date(existingDate) : new Date();
     setForm({
       title: item.title ?? { en: '', hi: '' },
       summary: item.summary ?? { en: '', hi: '' },
@@ -198,7 +207,8 @@ export default function CurrentAffairs() {
       tags: Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags ?? ''),
       source: item.source ?? '',
       sourceUrl: item.sourceUrl ?? '',
-      publishDate: item.publishDate ? item.publishDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
+      publishDate: dateObj.toISOString().slice(0, 10),
+      publishTime: dateObj.toTimeString().slice(0, 5),
       isPublished: item.status === 'published',
     });
     setModalOpen(true);
@@ -207,11 +217,17 @@ export default function CurrentAffairs() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
+    // Combine date + time into a single ISO datetime
+    const publishedAt = form.publishDate && form.publishTime
+      ? new Date(`${form.publishDate}T${form.publishTime}:00`).toISOString()
+      : new Date().toISOString();
+
     const payload = {
       title: form.title,
       body: form.content,          // backend expects 'body' not 'content'
       summary: form.summary,
       status: form.isPublished ? 'published' : 'draft',
+      publishedAt,
       tags: form.tags ? form.tags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean) : [],
       examTags: [],
       // category & source omitted — category must be ObjectId, source not in schema
