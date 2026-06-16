@@ -30,12 +30,40 @@ function StatusBadge({ status }) {
   );
 }
 
+// Free Google Translate helper
+async function googleTranslate(text, targetLang = 'hi') {
+  if (!text?.trim()) return '';
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return data[0].map((s) => s[0]).join('');
+  } catch { return ''; }
+}
+
 function AffairForm({ form, setForm, onSubmit, loading }) {
+  const [translating, setTranslating] = useState(false);
   const setField = (key, val) => setForm((p) => ({ ...p, [key]: val }));
   const setBilingual = (field, lang, val) =>
     setForm((p) => ({ ...p, [field]: { ...p[field], [lang]: val } }));
 
   const input = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500';
+
+  const handleAutoTranslate = async () => {
+    setTranslating(true);
+    const [titleHi, summaryHi, contentHi] = await Promise.all([
+      googleTranslate(form.title?.en),
+      googleTranslate(form.summary?.en),
+      googleTranslate(form.content?.en),
+    ]);
+    setForm((p) => ({
+      ...p,
+      title:   { ...p.title,   hi: titleHi   || p.title.hi },
+      summary: { ...p.summary, hi: summaryHi  || p.summary.hi },
+      content: { ...p.content, hi: contentHi  || p.content.hi },
+    }));
+    setTranslating(false);
+  };
 
   const BiRow = ({ label, field, multiline, required }) => {
     const Tag = multiline ? 'textarea' : 'input';
@@ -47,7 +75,7 @@ function AffairForm({ form, setForm, onSubmit, loading }) {
         </label>
         <div className="grid grid-cols-2 gap-2">
           <Tag className={input} value={form[field]?.en ?? ''} onChange={(e) => setBilingual(field, 'en', e.target.value)} placeholder={`${label} (EN)`} required={required} {...rows} />
-          <Tag className={input} value={form[field]?.hi ?? ''} onChange={(e) => setBilingual(field, 'hi', e.target.value)} placeholder={`${label} (HI)`} {...rows} />
+          <Tag className={`${input} ${!form[field]?.hi ? 'border-orange-300 bg-orange-50' : ''}`} value={form[field]?.hi ?? ''} onChange={(e) => setBilingual(field, 'hi', e.target.value)} placeholder={`${label} (HI) — required`} {...rows} />
         </div>
       </div>
     );
@@ -55,6 +83,17 @@ function AffairForm({ form, setForm, onSubmit, loading }) {
 
   return (
     <form onSubmit={onSubmit} className="space-y-5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-500">Fill English first, then auto-translate or type Hindi manually.</p>
+        <button
+          type="button"
+          onClick={handleAutoTranslate}
+          disabled={translating || !form.title?.en}
+          className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+        >
+          {translating ? '⏳ Translating…' : '🔄 Auto-translate to Hindi'}
+        </button>
+      </div>
       <BiRow label="Title" field="title" required />
       <BiRow label="Summary" field="summary" multiline />
       <BiRow label="Full Content" field="content" multiline />
@@ -113,6 +152,7 @@ export default function CurrentAffairs() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [filterCat, setFilterCat] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -128,7 +168,8 @@ export default function CurrentAffairs() {
     setLoading(true);
     try {
       const params = { page, limit: LIMIT };
-      if (filterCat) params.category = filterCat;
+      if (filterCat)    params.category = filterCat;
+      if (filterStatus) params.status   = filterStatus;
       const { data } = await currentAffairsAPI.list(params);
       setItems(data.data?.affairs ?? data.data ?? []);
       setTotal(data.data?.total ?? data.total ?? 0);
@@ -137,7 +178,7 @@ export default function CurrentAffairs() {
     } finally {
       setLoading(false);
     }
-  }, [page, filterCat]);
+  }, [page, filterCat, filterStatus]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -152,7 +193,7 @@ export default function CurrentAffairs() {
     setForm({
       title: item.title ?? { en: '', hi: '' },
       summary: item.summary ?? { en: '', hi: '' },
-      content: item.content ?? { en: '', hi: '' },
+      content: item.body ?? item.content ?? { en: '', hi: '' },
       category: item.category ?? 'other',
       tags: Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags ?? ''),
       source: item.source ?? '',
@@ -167,8 +208,13 @@ export default function CurrentAffairs() {
     e.preventDefault();
     setSaving(true);
     const payload = {
-      ...form,
-      tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+      title: form.title,
+      body: form.content,          // backend expects 'body' not 'content'
+      summary: form.summary,
+      status: form.isPublished ? 'published' : 'draft',
+      tags: form.tags ? form.tags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean) : [],
+      examTags: [],
+      // category & source omitted — category must be ObjectId, source not in schema
     };
     try {
       if (editTarget) {
@@ -244,6 +290,16 @@ export default function CurrentAffairs() {
           <option value="">All Categories</option>
           {CATEGORIES_CA.map((c) => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
         </select>
+        <select
+          value={filterStatus}
+          onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+        >
+          <option value="">All Status</option>
+          <option value="draft">Draft</option>
+          <option value="published">Published</option>
+          <option value="archived">Archived</option>
+        </select>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -269,9 +325,11 @@ export default function CurrentAffairs() {
                     <div className="font-medium text-gray-800 truncate">{item.title?.en ?? '—'}</div>
                     {item.title?.hi && <div className="text-xs text-gray-400 truncate">{item.title.hi}</div>}
                   </td>
-                  <td className="px-4 py-3 text-gray-500 capitalize">{item.category ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-500 capitalize">
+                    {item.category?.name?.en ?? (typeof item.category === 'string' ? item.category : '—')}
+                  </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">
-                    {item.publishDate ? new Date(item.publishDate).toLocaleDateString('en-IN') : '—'}
+                    {item.publishedAt ? new Date(item.publishedAt).toLocaleDateString('en-IN') : '—'}
                   </td>
                   <td className="px-4 py-3"><StatusBadge status={item.status ?? 'draft'} /></td>
                   <td className="px-4 py-3 text-right">

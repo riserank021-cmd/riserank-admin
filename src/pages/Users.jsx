@@ -20,7 +20,7 @@ export default function Users() {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
-  const [actionTarget, setActionTarget] = useState(null); // { user, action: 'suspend'|'unsuspend' }
+  const [actionTarget, setActionTarget] = useState(null); // { user, action: 'suspend'|'unsuspend'|'makeAdmin'|'removeAdmin' }
   const [actioning, setActioning] = useState(false);
 
   const LIMIT = 25;
@@ -30,7 +30,8 @@ export default function Users() {
     try {
       const params = { page, limit: LIMIT };
       if (search) params.search = search;
-      if (filterStatus) params.status = filterStatus;
+      if (filterStatus === 'suspended') params.isSuspended = true;
+      else if (filterStatus === 'active') params.isSuspended = false;
       const { data } = await usersAPI.list(params);
       setUsers(data.data?.users ?? data.data ?? []);
       setTotal(data.data?.total ?? data.total ?? 0);
@@ -47,12 +48,19 @@ export default function Users() {
     if (!actionTarget) return;
     setActioning(true);
     try {
-      if (actionTarget.action === 'suspend') {
-        await usersAPI.suspend(actionTarget.user._id);
-        toast(`${actionTarget.user.name} suspended`, 'warning');
-      } else {
-        await usersAPI.unsuspend(actionTarget.user._id);
-        toast(`${actionTarget.user.name} unsuspended`);
+      const { action, user } = actionTarget;
+      if (action === 'suspend') {
+        await usersAPI.suspend(user._id);
+        toast(`${user.name} suspended`, 'warning');
+      } else if (action === 'unsuspend') {
+        await usersAPI.unsuspend(user._id);
+        toast(`${user.name} unsuspended`);
+      } else if (action === 'makeAdmin') {
+        await usersAPI.updateRole(user._id, 'admin');
+        toast(`${user.name} is now an admin`);
+      } else if (action === 'removeAdmin') {
+        await usersAPI.updateRole(user._id, 'user');
+        toast(`${user.name} admin access removed`, 'warning');
       }
       setActionTarget(null);
       load();
@@ -104,10 +112,10 @@ export default function Users() {
               <tr className="border-b bg-gray-50 text-left">
                 <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
                 <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Joined</th>
-                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">XP</th>
-                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Streak</th>
+                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">Streak</th>
+                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Role</th>
                 <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Status</th>
-                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24 text-right">Actions</th>
+                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-40 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -125,31 +133,67 @@ export default function Users() {
                   <td className="px-4 py-3 text-gray-500 text-xs">
                     {u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-IN') : '—'}
                   </td>
-                  <td className="px-4 py-3 text-gray-600 font-medium">{u.xp?.toLocaleString() ?? '0'}</td>
-                  <td className="px-4 py-3 text-gray-600">{u.streak ?? 0} 🔥</td>
+                  <td className="px-4 py-3 text-gray-600">{u.currentStreak ?? 0} 🔥</td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      u.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                    }`}>
-                      {u.status ?? 'active'}
-                    </span>
+                    {u.role === 'superadmin' ? (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">superadmin</span>
+                    ) : u.role === 'admin' ? (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">admin</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">user</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium w-fit ${
+                        u.isSuspended ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                      }`}>
+                        {u.isSuspended ? 'suspended' : 'active'}
+                      </span>
+                      {!u.isEmailVerified && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 w-fit">
+                          unverified
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {u.status === 'suspended' ? (
-                      <button
-                        onClick={() => setActionTarget({ user: u, action: 'unsuspend' })}
-                        className="px-3 py-1 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
-                      >
-                        Unsuspend
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => setActionTarget({ user: u, action: 'suspend' })}
-                        className="px-3 py-1 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
-                      >
-                        Suspend
-                      </button>
-                    )}
+                    <div className="flex items-center justify-end gap-1.5">
+                      {/* Admin toggle — only for non-superadmin users */}
+                      {u.role !== 'superadmin' && (
+                        u.role === 'admin' ? (
+                          <button
+                            onClick={() => setActionTarget({ user: u, action: 'removeAdmin' })}
+                            className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                          >
+                            Remove Admin
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setActionTarget({ user: u, action: 'makeAdmin' })}
+                            className="px-2 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+                          >
+                            Make Admin
+                          </button>
+                        )
+                      )}
+                      {/* Suspend toggle */}
+                      {u.isSuspended ? (
+                        <button
+                          onClick={() => setActionTarget({ user: u, action: 'unsuspend' })}
+                          className="px-2 py-1 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
+                        >
+                          Unsuspend
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setActionTarget({ user: u, action: 'suspend' })}
+                          className="px-2 py-1 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                        >
+                          Suspend
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -172,13 +216,22 @@ export default function Users() {
         open={!!actionTarget}
         onClose={() => setActionTarget(null)}
         onConfirm={handleAction}
-        title={actionTarget?.action === 'suspend' ? 'Suspend User' : 'Unsuspend User'}
+        title={
+          actionTarget?.action === 'suspend' ? 'Suspend User' :
+          actionTarget?.action === 'unsuspend' ? 'Unsuspend User' :
+          actionTarget?.action === 'makeAdmin' ? 'Grant Admin Access' :
+          'Remove Admin Access'
+        }
         message={
           actionTarget?.action === 'suspend'
             ? `Suspend ${actionTarget?.user?.name}? They won't be able to log in.`
-            : `Unsuspend ${actionTarget?.user?.name}? They'll regain access.`
+          : actionTarget?.action === 'unsuspend'
+            ? `Unsuspend ${actionTarget?.user?.name}? They'll regain access.`
+          : actionTarget?.action === 'makeAdmin'
+            ? `Grant admin access to ${actionTarget?.user?.name}? They can manage content.`
+          : `Remove admin access from ${actionTarget?.user?.name}?`
         }
-        danger={actionTarget?.action === 'suspend'}
+        danger={actionTarget?.action === 'suspend' || actionTarget?.action === 'removeAdmin'}
         loading={actioning}
       />
     </div>

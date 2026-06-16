@@ -2,12 +2,17 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
 const NAV = [
-  { to: '/',               icon: '📊', label: 'Dashboard'      },
-  { to: '/questions',      icon: '❓', label: 'Questions'       },
-  { to: '/quizzes',        icon: '📝', label: 'Quizzes'         },
-  { to: '/current-affairs',icon: '📰', label: 'Current Affairs' },
-  { to: '/users',          icon: '👥', label: 'Users'           },
-  { to: '/reports',        icon: '🚩', label: 'Reports'         },
+  { to: '/',                icon: '📊', label: 'Dashboard'       },
+  { to: '/questions',       icon: '❓', label: 'Questions'        },
+  { to: '/quizzes',         icon: '📝', label: 'Quizzes'          },
+  { to: '/current-affairs', icon: '📰', label: 'Current Affairs'  },
+  { to: '/categories',      icon: '📂', label: 'Categories'       },
+  { to: '/users',           icon: '👥', label: 'Users'            },
+  { to: '/reports',         icon: '🚩', label: 'Reports'          },
+  { to: '/notifications',   icon: '🔔', label: 'Notifications'    },
+  { to: '/import',          icon: '⬆️', label: 'Bulk Import'      },
+  { to: '/analytics',       icon: '📈', label: 'Analytics'        },
+  { to: '/live-tests',      icon: '🔴', label: 'Live Tests'        },
 ];
 
 export function Layout({ children }) {
@@ -26,7 +31,7 @@ export function Layout({ children }) {
         {/* Logo */}
         <div className="px-6 py-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">🏆</span>
+            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">R</div>
             <div>
               <div className="font-bold text-gray-900 text-sm">RiseRank</div>
               <div className="text-xs text-gray-400">Admin Panel</div>
