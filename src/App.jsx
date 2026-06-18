@@ -59,7 +59,7 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/admin">
       <ToastProvider>
         <AppRoutes />
       </ToastProvider>
