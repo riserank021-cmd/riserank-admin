@@ -15,6 +15,13 @@ import Notifications  from './pages/Notifications';
 import Import         from './pages/Import';
 import Analytics      from './pages/Analytics';
 import LiveTests      from './pages/LiveTests';
+import VideoDashboard from './pages/VideoDashboard';
+import Videos         from './pages/Videos';
+import LiveScheduler  from './pages/LiveScheduler';
+import Playlists      from './pages/Playlists';
+import Teachers       from './pages/Teachers';
+import Batches        from './pages/Batches';
+import VideoAnalytics from './pages/VideoAnalytics';
 
 function RequireAuth({ children }) {
   const { isAuthenticated } = useAuth();
@@ -47,6 +54,13 @@ function AppRoutes() {
                 <Route path="/import"           element={<Import />}         />
                 <Route path="/analytics"        element={<Analytics />}      />
                 <Route path="/live-tests"       element={<LiveTests />}      />
+                <Route path="/video-dashboard"  element={<VideoDashboard />} />
+                <Route path="/videos"           element={<Videos />}         />
+                <Route path="/live-scheduler"   element={<LiveScheduler />}  />
+                <Route path="/playlists"        element={<Playlists />}      />
+                <Route path="/teachers"         element={<Teachers />}       />
+                <Route path="/batches"          element={<Batches />}        />
+                <Route path="/video-analytics"  element={<VideoAnalytics />} />
                 <Route path="*"                 element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>

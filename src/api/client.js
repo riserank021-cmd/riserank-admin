@@ -103,3 +103,53 @@ export const liveTestsAPI = {
   leaderboard: (id)   => api.get(`/live-tests/${id}/leaderboard`),
   stats: (id)         => api.get(`/live-tests/${id}/stats`),
 };
+
+// ── Video Classes ─────────────────────────────────────────────────────────────
+export const videosAPI = {
+  list: (params)      => api.get('/videos', { params }),
+  getById: (id)        => api.get(`/videos/${id}`),
+  create: (data)       => api.post('/videos', data),
+  update: (id, data)   => api.put(`/videos/${id}`, data),
+  remove: (id)          => api.delete(`/videos/${id}`),
+  publish: (id)         => api.patch(`/videos/${id}/publish`),
+  archive: (id)         => api.patch(`/videos/${id}/archive`),
+  setLiveStatus: (id, liveStatus) => api.patch(`/videos/${id}/live-status`, { liveStatus }),
+};
+
+export const teachersAPI = {
+  list: (params)      => api.get('/teachers', { params }),
+  getById: (id)         => api.get(`/teachers/${id}`),
+  create: (data)        => api.post('/teachers', data),
+  update: (id, data)    => api.put(`/teachers/${id}`, data),
+  remove: (id)           => api.delete(`/teachers/${id}`),
+};
+
+export const playlistsAPI = {
+  list: (params)      => api.get('/playlists', { params }),
+  getById: (id)         => api.get(`/playlists/${id}`),
+  create: (data)        => api.post('/playlists', data),
+  update: (id, data)    => api.put(`/playlists/${id}`, data),
+  setVideos: (id, videos) => api.put(`/playlists/${id}/videos`, { videos }),
+  remove: (id)           => api.delete(`/playlists/${id}`),
+};
+
+export const batchesAPI = {
+  list: (params)      => api.get('/batches', { params }),
+  getById: (id)         => api.get(`/batches/${id}`),
+  create: (data)        => api.post('/batches', data),
+  update: (id, data)    => api.put(`/batches/${id}`, data),
+  remove: (id)           => api.delete(`/batches/${id}`),
+  listStudents: (id, params) => api.get(`/batches/${id}/students`, { params }),
+  addStudents: (id, studentIds) => api.post(`/batches/${id}/students`, { studentIds }),
+  removeStudents: (id, studentIds) => api.post(`/batches/${id}/students/remove`, { studentIds }),
+};
+
+export const videoAnalyticsAPI = {
+  overview: ()                => api.get('/video-analytics/overview'),
+  popular: (params)           => api.get('/video-analytics/popular', { params }),
+  dailyViews: (params)        => api.get('/video-analytics/daily-views', { params }),
+  monthlyViews: (params)      => api.get('/video-analytics/monthly-views', { params }),
+  videoStats: (videoId)       => api.get(`/video-analytics/video/${videoId}`),
+  teacherAnalytics: (teacherId) => api.get(`/video-analytics/teacher/${teacherId}`),
+  batchAnalytics: (batchId)   => api.get(`/video-analytics/batch/${batchId}`),
+};

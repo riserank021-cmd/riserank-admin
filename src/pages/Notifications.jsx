@@ -1,33 +1,55 @@
-import { useState } from 'react';
-import { api } from '../api/client';
+import { useState, useEffect } from 'react';
+import { api, batchesAPI } from '../api/client';
 import { useToast } from '../components/Toast';
 
 const TYPES = [
   { value: 'all',      label: 'All Users',        icon: '📢', desc: 'Broadcast to every registered user' },
-  { value: 'category', label: 'By Category',       icon: '📂', desc: 'Send to users interested in a specific category' },
+  { value: 'category', label: 'By Category',       icon: '📂', desc: 'Send to users interested in an exam category' },
+  { value: 'batch',    label: 'By Batch',          icon: '🎓', desc: 'Send to all students in a specific batch' },
   { value: 'user',     label: 'Specific User',     icon: '👤', desc: 'Send to one user by their User ID' },
 ];
 
+// Mirrors the backend's real EXAM_CATEGORIES enum (config/constants.js) and
+// VideoForm.jsx's list — the old hardcoded subject list here (Science,
+// History, ...) never matched any real user's preferredExams, so "By
+// Category" broadcasts silently matched nobody.
 const CATEGORIES = [
-  'General Knowledge', 'Current Affairs', 'Science', 'History',
-  'Geography', 'Polity', 'Economy', 'Mathematics', 'English', 'Reasoning',
+  { value: 'ssc',      label: 'SSC' },
+  { value: 'railway',  label: 'Railway' },
+  { value: 'banking',  label: 'Banking' },
+  { value: 'bihar_si', label: 'Bihar SI' },
 ];
 
 export default function Notifications() {
-  const { showToast } = useToast();
+  const toast = useToast();
   const [type, setType] = useState('all');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [category, setCategory] = useState('');
+  const [batches, setBatches] = useState([]);
+  const [batchId, setBatchId] = useState('');
   const [userId, setUserId] = useState('');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
 
+  useEffect(() => {
+    if (type !== 'batch' || batches.length) return;
+    (async () => {
+      try {
+        const { data } = await batchesAPI.list({ limit: 100, isActive: true });
+        setBatches(data.data ?? []);
+      } catch {
+        toast('Failed to load batches', 'error');
+      }
+    })();
+  }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSend = async () => {
-    if (!title.trim()) return showToast('Title is required', 'error');
-    if (!body.trim())  return showToast('Message body is required', 'error');
-    if (type === 'category' && !category) return showToast('Select a category', 'error');
-    if (type === 'user' && !userId.trim()) return showToast('Enter a User ID', 'error');
+    if (!title.trim()) return toast('Title is required', 'error');
+    if (!body.trim())  return toast('Message body is required', 'error');
+    if (type === 'category' && !category) return toast('Select a category', 'error');
+    if (type === 'batch' && !batchId) return toast('Select a batch', 'error');
+    if (type === 'user' && !userId.trim()) return toast('Enter a User ID', 'error');
 
     setSending(true);
     try {
@@ -35,19 +57,22 @@ export default function Notifications() {
       if (type === 'all') {
         await api.post('/notifications/broadcast', payload);
       } else if (type === 'category') {
-        await api.post('/notifications/broadcast', { ...payload, category });
+        await api.post('/notifications/broadcast', { ...payload, examCategory: category });
+      } else if (type === 'batch') {
+        await api.post('/notifications/broadcast', { ...payload, batchId });
       } else {
         await api.post(`/notifications/user/${userId.trim()}`, payload);
       }
-      showToast('Notification sent successfully', 'success');
+      toast('Notification sent successfully', 'success');
       setSent(true);
       setTitle('');
       setBody('');
       setCategory('');
+      setBatchId('');
       setUserId('');
       setTimeout(() => setSent(false), 3000);
     } catch (err) {
-      showToast(err?.response?.data?.message ?? 'Failed to send notification', 'error');
+      toast(err?.response?.data?.message ?? 'Failed to send notification', 'error');
     } finally {
       setSending(false);
     }
@@ -63,7 +88,7 @@ export default function Notifications() {
       {/* Audience selector */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">Audience</label>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           {TYPES.map(t => (
             <button
               key={t.value}
@@ -87,7 +112,7 @@ export default function Notifications() {
       {/* Conditional target fields */}
       {type === 'category' && (
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Exam Category</label>
           <select
             value={category}
             onChange={e => setCategory(e.target.value)}
@@ -95,9 +120,30 @@ export default function Notifications() {
           >
             <option value="">Select a category…</option>
             {CATEGORIES.map(c => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c.value} value={c.value}>{c.label}</option>
             ))}
           </select>
+        </div>
+      )}
+
+      {type === 'batch' && (
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Batch</label>
+          <select
+            value={batchId}
+            onChange={e => setBatchId(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+          >
+            <option value="">Select a batch…</option>
+            {batches.map(b => (
+              <option key={b._id} value={b._id}>
+                {b.name} {typeof b.studentCount === 'number' ? `(${b.studentCount})` : ''}
+              </option>
+            ))}
+          </select>
+          {!batches.length && (
+            <p className="text-xs text-gray-400 mt-1">No active batches found.</p>
+          )}
         </div>
       )}
 
@@ -167,7 +213,9 @@ export default function Notifications() {
             : 'bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50'
         }`}
       >
-        {sent ? '✅ Sent!' : sending ? 'Sending…' : `Send to ${type === 'all' ? 'All Users' : type === 'category' ? 'Category' : 'User'}`}
+        {sent ? '✅ Sent!' : sending ? 'Sending…' : `Send to ${
+          type === 'all' ? 'All Users' : type === 'category' ? 'Category' : type === 'batch' ? 'Batch' : 'User'
+        }`}
       </button>
     </div>
   );

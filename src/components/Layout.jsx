@@ -13,6 +13,13 @@ const NAV = [
   { to: '/import',          icon: '⬆️', label: 'Bulk Import'      },
   { to: '/analytics',       icon: '📈', label: 'Analytics'        },
   { to: '/live-tests',      icon: '🔴', label: 'Live Tests'        },
+  { to: '/video-dashboard', icon: '🎥', label: 'Video Dashboard'   },
+  { to: '/videos',          icon: '🎬', label: 'Videos'            },
+  { to: '/live-scheduler',  icon: '📡', label: 'Live Scheduler'    },
+  { to: '/playlists',       icon: '📁', label: 'Playlists'         },
+  { to: '/teachers',        icon: '🧑‍🏫', label: 'Teachers'          },
+  { to: '/batches',         icon: '👥', label: 'Batches'           },
+  { to: '/video-analytics', icon: '📈', label: 'Video Analytics'   },
 ];
 
 export function Layout({ children }) {
