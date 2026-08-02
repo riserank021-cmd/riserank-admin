@@ -19,6 +19,7 @@ import VideoDashboard from './pages/VideoDashboard';
 import Videos         from './pages/Videos';
 import LiveScheduler  from './pages/LiveScheduler';
 import Playlists      from './pages/Playlists';
+import CourseRequests from './pages/CourseRequests';
 import Teachers       from './pages/Teachers';
 import Batches        from './pages/Batches';
 import VideoAnalytics from './pages/VideoAnalytics';
@@ -58,6 +59,7 @@ function AppRoutes() {
                 <Route path="/videos"           element={<Videos />}         />
                 <Route path="/live-scheduler"   element={<LiveScheduler />}  />
                 <Route path="/playlists"        element={<Playlists />}      />
+                <Route path="/course-requests"  element={<CourseRequests />} />
                 <Route path="/teachers"         element={<Teachers />}       />
                 <Route path="/batches"          element={<Batches />}        />
                 <Route path="/video-analytics"  element={<VideoAnalytics />} />

@@ -9,7 +9,7 @@ import { playlistsAPI, teachersAPI, videosAPI } from '../api/client';
 import { Modal, ConfirmModal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 
-const EMPTY_FORM = { title: { en: '', hi: '' }, description: { en: '', hi: '' }, thumbnailUrl: '', teacher: '' };
+const EMPTY_FORM = { title: { en: '', hi: '' }, description: { en: '', hi: '' }, thumbnailUrl: '', teacher: '', visibility: 'public' };
 const input = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500';
 const label = 'block text-xs font-semibold text-gray-600 mb-1';
 
@@ -54,6 +54,30 @@ function PlaylistForm({ form, setForm, onSubmit, loading }) {
             {teachers.map((t) => <option key={t._id} value={t._id}>{t.name}</option>)}
           </select>
         </div>
+      </div>
+      <div>
+        <label className={label}>Visibility</label>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => set('visibility', 'public')}
+            className={`flex-1 text-sm font-medium px-3 py-2 rounded-lg border ${form.visibility !== 'private' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300'}`}
+          >
+            Public — everyone can watch
+          </button>
+          <button
+            type="button"
+            onClick={() => set('visibility', 'private')}
+            className={`flex-1 text-sm font-medium px-3 py-2 rounded-lg border ${form.visibility === 'private' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-gray-600 border-gray-300'}`}
+          >
+            Private — request & approve
+          </button>
+        </div>
+        {form.visibility === 'private' && (
+          <p className="text-xs text-gray-500 mt-1.5">
+            Students see this course in the list but must request access. Approve or deny requests under "Course Requests".
+          </p>
+        )}
       </div>
       <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
         <button type="submit" disabled={loading} className="px-6 py-2 bg-primary-600 text-white text-sm font-semibold rounded-lg hover:bg-primary-700 disabled:opacity-50">
@@ -205,6 +229,7 @@ export default function Playlists() {
       description: p.description ?? { en: '', hi: '' },
       thumbnailUrl: p.thumbnailUrl ?? '',
       teacher: p.teacher?._id ?? p.teacher ?? '',
+      visibility: p.visibility ?? 'public',
     });
     setModalOpen(true);
   };
@@ -257,11 +282,11 @@ export default function Playlists() {
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">📁 Playlists</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Ordered series of videos (a "course")</p>
+          <h1 className="text-2xl font-bold text-gray-900">📁 Courses</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Ordered series of videos. Mark a course Private to gate it behind admin-approved access requests.</p>
         </div>
         <button onClick={openCreate} className="px-4 py-2 bg-primary-600 text-white text-sm font-semibold rounded-lg hover:bg-primary-700">
-          + New Playlist
+          + New Course
         </button>
       </div>
 
@@ -278,9 +303,14 @@ export default function Playlists() {
             <div key={p._id} className="border border-gray-200 rounded-xl p-4 bg-white">
               <div className="flex items-start justify-between mb-2">
                 <p className="font-semibold text-gray-900 line-clamp-1">{p.title?.en}</p>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.isPublished ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                  {p.isPublished ? 'Published' : 'Draft'}
-                </span>
+                <div className="flex gap-1.5 flex-shrink-0">
+                  {p.visibility === 'private' && (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">🔑 Private</span>
+                  )}
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.isPublished ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {p.isPublished ? 'Published' : 'Draft'}
+                  </span>
+                </div>
               </div>
               <p className="text-xs text-gray-400 mb-3">{p.teacher?.name ?? 'No teacher assigned'}</p>
               <div className="flex gap-2">
@@ -298,7 +328,7 @@ export default function Playlists() {
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editTarget ? `Edit: ${editTarget.title?.en}` : 'Create Playlist'} size="md">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editTarget ? `Edit: ${editTarget.title?.en}` : 'Create Course'} size="md">
         <PlaylistForm form={form} setForm={setForm} onSubmit={handleSubmit} loading={saving} />
       </Modal>
 
@@ -308,7 +338,7 @@ export default function Playlists() {
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
-        title="Delete Playlist"
+        title="Delete Course"
         message={`Delete "${deleteTarget?.title?.en}"? Videos in it are not deleted, just unlinked.`}
         danger
       />

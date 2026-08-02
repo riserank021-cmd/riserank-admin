@@ -39,6 +39,12 @@ export default function Videos() {
   const [form, setForm] = useState(EMPTY_VIDEO_FORM);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  // BUG FIX: handlePublishToggle had no in-flight guard — a fast double-click
+  // could fire two publish/archive requests before the first one's response
+  // updated the row (the backend correctly rejects the second with a 400,
+  // "Already published", but the admin just sees a confusing error toast for
+  // an action that actually already succeeded).
+  const [togglingId, setTogglingId] = useState(null);
 
   const LIMIT = 20;
 
@@ -123,6 +129,8 @@ export default function Videos() {
   };
 
   const handlePublishToggle = async (v) => {
+    if (togglingId === v._id) return;
+    setTogglingId(v._id);
     try {
       if (v.status === 'published') await videosAPI.archive(v._id);
       else await videosAPI.publish(v._id);
@@ -130,6 +138,8 @@ export default function Videos() {
       load();
     } catch (err) {
       toast(err?.response?.data?.message ?? 'Action failed', 'error');
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -233,8 +243,12 @@ export default function Videos() {
                   <td className="px-4 py-3 text-gray-600">{v.viewCount ?? 0}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 justify-end">
-                      <button onClick={() => handlePublishToggle(v)} className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">
-                        {v.status === 'published' ? 'Archive' : 'Publish'}
+                      <button
+                        onClick={() => handlePublishToggle(v)}
+                        disabled={togglingId === v._id}
+                        className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        {togglingId === v._id ? '…' : v.status === 'published' ? 'Archive' : 'Publish'}
                       </button>
                       <button onClick={() => openEdit(v)} className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-primary-600 hover:bg-primary-50">
                         ✏️ Edit

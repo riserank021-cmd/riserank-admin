@@ -15,15 +15,23 @@ import { VideoForm, EMPTY_VIDEO_FORM } from '../components/VideoForm';
 function useCountdown(scheduledAt) {
   const [label, setLabel] = useState('');
   useEffect(() => {
+    let id;
     const tick = () => {
       const diff = new Date(scheduledAt).getTime() - Date.now();
-      if (diff <= 0) return setLabel('Starting…');
+      if (diff <= 0) {
+        setLabel('Starting…');
+        // BUG FIX: this kept re-rendering every 30s forever once diff <= 0
+        // (e.g. an admin leaving this tab open past the scheduled time) —
+        // nothing left to count down, so stop the interval.
+        clearInterval(id);
+        return;
+      }
       const h = Math.floor(diff / 3_600_000);
       const m = Math.floor((diff % 3_600_000) / 60_000);
       setLabel(h > 0 ? `in ${h}h ${m}m` : `in ${m}m`);
     };
     tick();
-    const id = setInterval(tick, 30_000);
+    id = setInterval(tick, 30_000);
     return () => clearInterval(id);
   }, [scheduledAt]);
   return label;
@@ -126,14 +134,31 @@ export default function LiveScheduler() {
       if (editTarget) {
         await videosAPI.update(editTarget._id, payload);
         toast('Live class updated');
+        setModalOpen(false);
       } else {
         const { data } = await videosAPI.create(payload);
         // New live classes start as draft, same as recorded — publish immediately
         // so it actually shows up for students once scheduledAt arrives.
-        await videosAPI.publish(data.data.video._id);
-        toast('Live class scheduled');
+        //
+        // BUG FIX: create-then-publish is two sequential calls. If publish
+        // failed after create succeeded, this used to fall into the catch
+        // below and show a generic "Save failed" toast — misleading, since
+        // the class WAS created, just left as an invisible unpublished
+        // draft with no obvious next step for the admin. Now the two steps
+        // are handled separately: a publish failure gets its own message
+        // telling the admin exactly what state it's in and how to fix it,
+        // instead of implying nothing happened.
+        try {
+          await videosAPI.publish(data.data.video._id);
+          toast('Live class scheduled');
+        } catch (publishErr) {
+          toast(
+            'Class was created but publishing failed — find it under Videos (status: draft) and click Publish to make it visible to students.',
+            'error'
+          );
+        }
+        setModalOpen(false);
       }
-      setModalOpen(false);
       load();
     } catch (err) {
       toast(err?.response?.data?.message ?? 'Save failed', 'error');

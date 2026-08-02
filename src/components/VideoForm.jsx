@@ -11,13 +11,6 @@
 import { useState, useEffect } from 'react';
 import { teachersAPI, batchesAPI } from '../api/client';
 
-const EXAM_CATEGORIES = [
-  { value: 'ssc',      label: 'SSC' },
-  { value: 'railway',  label: 'Railway' },
-  { value: 'banking',  label: 'Banking' },
-  { value: 'bihar_si', label: 'Bihar SI' },
-];
-
 export const EMPTY_VIDEO_FORM = {
   title:           { en: '', hi: '' },
   description:     { en: '', hi: '' },
@@ -48,8 +41,6 @@ export function VideoForm({ form, setForm, onSubmit, loading, lockType }) {
 
   const set = (key, val) => setForm((p) => ({ ...p, [key]: val }));
   const setBi = (field, lang, val) => setForm((p) => ({ ...p, [field]: { ...p[field], [lang]: val } }));
-  const toggleExamTag = (val) =>
-    set('examTags', form.examTags.includes(val) ? form.examTags.filter((t) => t !== val) : [...form.examTags, val]);
   const toggleBatch = (id) =>
     set('allowedBatches', form.allowedBatches.includes(id) ? form.allowedBatches.filter((b) => b !== id) : [...form.allowedBatches, id]);
 
@@ -140,26 +131,19 @@ export function VideoForm({ form, setForm, onSubmit, loading, lockType }) {
         </div>
       )}
 
-      {/* Teacher / Playlist */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={label}>Teacher</label>
-          <select className={input} value={form.teacher} onChange={(e) => set('teacher', e.target.value)}>
-            <option value="">— None —</option>
-            {teachers.map((t) => <option key={t._id} value={t._id}>{t.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className={label}>Exam Tags</label>
-          <div className="flex flex-wrap gap-3 mt-2">
-            {EXAM_CATEGORIES.map((c) => (
-              <label key={c.value} className="flex items-center gap-1.5 text-xs text-gray-700">
-                <input type="checkbox" checked={form.examTags.includes(c.value)} onChange={() => toggleExamTag(c.value)} className="accent-primary-600" />
-                {c.label}
-              </label>
-            ))}
-          </div>
-        </div>
+      {/* Teacher — this is now the primary way students browse videos
+          ("Browse by Teacher" on the mobile app), so pick this carefully.
+          The old Exam Tags checkboxes (SSC/Railway/Banking/Bihar SI) were
+          removed here since the mobile app no longer filters by them. */}
+      <div>
+        <label className={label}>Teacher</label>
+        <select className={input} value={form.teacher} onChange={(e) => set('teacher', e.target.value)}>
+          <option value="">— None —</option>
+          {teachers.map((t) => <option key={t._id} value={t._id}>{t.name}</option>)}
+        </select>
+        {!form.teacher && (
+          <p className="text-xs text-amber-600 mt-1">⚠️ Without a teacher, this video won't appear under any "Browse by Teacher" card on the app.</p>
+        )}
       </div>
 
       {/* Access control — the important part */}

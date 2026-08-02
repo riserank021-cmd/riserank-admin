@@ -131,6 +131,8 @@ export const playlistsAPI = {
   update: (id, data)    => api.put(`/playlists/${id}`, data),
   setVideos: (id, videos) => api.put(`/playlists/${id}/videos`, { videos }),
   remove: (id)           => api.delete(`/playlists/${id}`),
+  pendingRequests: ()    => api.get('/playlists/requests/pending'),
+  respondToRequest: (id, userId, decision) => api.put(`/playlists/${id}/requests/${userId}`, { decision }),
 };
 
 export const batchesAPI = {
