@@ -37,6 +37,76 @@ export const authAPI = {
     api.post('/auth/admin/login', { email, password }),
 };
 
+// ── Admin / Coaching Admin self-service + account management ──────────────────
+// getMe/changePassword: self-service (admin, superadmin, coaching_admin) — see
+// /admin/me, /admin/me/change-password (Bug #2). listAdmins only ever returns
+// role=admin accounts (backend limitation — see admin.service.js's listAdmins
+// comment); coaching_admin accounts must be fetched per-center via
+// coachingCentersAPI.listAdminsForCenter.
+export const adminsAPI = {
+  getMe: () => api.get('/admin/me'),
+  changeMyPassword: (data) => api.put('/admin/me/change-password', data),
+  list: (params) => api.get('/admin/admins', { params }),
+  create: (data) => api.post('/admin/admins', data),
+  update: (id, data) => api.patch(`/admin/admins/${id}`, data),
+  remove: (id) => api.delete(`/admin/admins/${id}`),
+};
+
+// ── Coaching Centers ────────────────────────────────────────────────────────────
+export const coachingCentersAPI = {
+  list: (params) => api.get('/coaching-centers', { params }),
+  getById: (idOrSlug) => api.get(`/coaching-centers/${idOrSlug}`),
+  create: (data) => api.post('/coaching-centers', data),
+  update: (id, data) => api.put(`/coaching-centers/${id}`, data),
+  setStatus: (id, status) => api.patch(`/coaching-centers/${id}/status`, { status }),
+  listAdminsForCenter: (id) => api.get(`/coaching-centers/${id}/admins`),
+  uploadLogo: (id, file, onProgress) => {
+    const formData = new FormData();
+    formData.append('logo', file);
+    return api.post(`/upload/coaching-center/${id}/logo`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress,
+    });
+  },
+  uploadCover: (id, file, onProgress) => {
+    const formData = new FormData();
+    formData.append('cover', file);
+    return api.post(`/upload/coaching-center/${id}/cover`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress,
+    });
+  },
+};
+
+// ── Exams (dynamic, database-driven) ─────────────────────────────────────────
+export const examsAPI = {
+  list: (params) => api.get('/exams', { params }),
+  getById: (id) => api.get(`/exams/${id}`),
+  create: (data) => api.post('/exams', data),
+  update: (id, data) => api.put(`/exams/${id}`, data),
+  archive: (id) => api.patch(`/exams/${id}/archive`),
+};
+
+// ── Upload helpers not tied to an existing resource-specific object above ────
+export const uploadAPI = {
+  videoThumbnail: (file, onProgress) => {
+    const formData = new FormData();
+    formData.append('thumbnail', file);
+    return api.post('/upload/video-thumbnail', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress,
+    });
+  },
+  teacherAvatar: (teacherId, file, onProgress) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    return api.post(`/upload/teacher/${teacherId}/avatar`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress,
+    });
+  },
+};
+
 // ── Questions ─────────────────────────────────────────────────────────────────
 export const questionsAPI = {
   list: (params) => api.get('/questions', { params }),
@@ -84,12 +154,39 @@ export const usersAPI = {
 // ── Analytics ─────────────────────────────────────────────────────────────────
 export const analyticsAPI = {
   overview: () => api.get('/analytics/overview'),
+  // Super Admin only (route is authorize(SUPER_ADMIN) — not extended to plain
+  // Admin on the backend), so the Activity Logs page gates on that role.
+  adminLogs: (params) => api.get('/analytics/admin-logs', { params }),
 };
 
 // ── Reports ───────────────────────────────────────────────────────────────────
 export const reportsAPI = {
   list: (params) => api.get('/admin/reports', { params }),
   review: (id, data) => api.patch(`/admin/reports/${id}/review`, data),
+  grouped: () => api.get('/admin/reports/grouped'),
+  bulkReview: (questionId, data) => api.patch(`/admin/reports/question/${questionId}/bulk-review`, data),
+};
+
+// ── Exam Dates ────────────────────────────────────────────────────────────────
+export const examDatesAPI = {
+  list: () => api.get('/exam-dates'),
+  create: (data) => api.post('/exam-dates', data),
+  update: (id, data) => api.put(`/exam-dates/${id}`, data),
+  remove: (id) => api.delete(`/exam-dates/${id}`),
+};
+
+// ── FAQs ──────────────────────────────────────────────────────────────────────
+export const faqsAPI = {
+  list: () => api.get('/faqs'),
+  create: (data) => api.post('/faqs', data),
+  update: (id, data) => api.put(`/faqs/${id}`, data),
+  remove: (id) => api.delete(`/faqs/${id}`),
+};
+
+// ── Support Tickets ───────────────────────────────────────────────────────────
+export const supportTicketsAPI = {
+  list: (params) => api.get('/support-tickets', { params }),
+  respond: (id, data) => api.patch(`/support-tickets/${id}/respond`, data),
 };
 
 // ── Live Tests ─────────────────────────────────────────────────────────────────
@@ -144,6 +241,13 @@ export const batchesAPI = {
   listStudents: (id, params) => api.get(`/batches/${id}/students`, { params }),
   addStudents: (id, studentIds) => api.post(`/batches/${id}/students`, { studentIds }),
   removeStudents: (id, studentIds) => api.post(`/batches/${id}/students/remove`, { studentIds }),
+};
+
+// ── System Health ─────────────────────────────────────────────────────────────
+export const systemHealthAPI = {
+  check: () => api.get('/system-health/check'),
+  testEmail: () => api.post('/system-health/test-email'),
+  testPush: (userId) => api.post('/system-health/test-push', userId ? { userId } : {}),
 };
 
 export const videoAnalyticsAPI = {

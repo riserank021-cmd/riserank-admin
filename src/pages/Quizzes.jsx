@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { quizzesAPI, questionsAPI } from '../api/client';
+import { quizzesAPI, questionsAPI, examsAPI, coachingCentersAPI } from '../api/client';
 import { Modal, ConfirmModal } from '../components/Modal';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../hooks/useAuth';
 
 // Matches backend EXAM_CATEGORIES enum exactly
 const EXAM_CATEGORIES = [
@@ -14,7 +15,8 @@ const EXAM_CATEGORIES = [
 const EMPTY_FORM = {
   title:        { en: '', hi: '' },
   description:  { en: '', hi: '' },
-  examCategory: 'ssc',          // single select (backend field)
+  examCategory: 'ssc',          // single select (legacy backend field, unchanged)
+  exam: '',                     // Phase 8/9: dynamic Exam ref, additive alongside examCategory
   durationMinutes: 30,          // UI convenience — converted to durationSeconds on submit
   totalMarks: 0,
   negativeMarking: false,
@@ -23,12 +25,22 @@ const EMPTY_FORM = {
   isDaily: false,
   scheduledDate: '',            // backend field (only when isDaily)
   questions: [],                // array of question objects (submitted as IDs)
+  coachingCenter: '',           // admin/superadmin only
 };
 
 function QuizForm({ form, setForm, onSubmit, loading }) {
+  const { isSuperAdmin, isAdminRole, isCoachingAdmin } = useAuth();
+  const canPickCenter = isSuperAdmin || isAdminRole;
   const [qSearch, setQSearch] = useState('');
   const [qResults, setQResults] = useState([]);
   const [qSearching, setQSearching] = useState(false);
+  const [exams, setExams] = useState([]);
+  const [centers, setCenters] = useState([]);
+
+  useEffect(() => {
+    examsAPI.list({ limit: 100, status: 'published' }).then(({ data }) => setExams(data.data ?? [])).catch(() => {});
+    if (canPickCenter) coachingCentersAPI.list({ limit: 100 }).then(({ data }) => setCenters(data.data ?? [])).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setField = (key, val) => setForm((p) => ({ ...p, [key]: val }));
   const setBilingual = (field, lang, val) =>
@@ -123,6 +135,31 @@ function QuizForm({ form, setForm, onSubmit, loading }) {
         )}
       </div>
 
+      {/* Dynamic Exam + Coaching Center */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Exam</label>
+          <select className={input} value={form.exam} onChange={(e) => setField('exam', e.target.value)}>
+            <option value="">— None —</option>
+            {exams.map((ex) => <option key={ex._id} value={ex._id}>{ex.name}</option>)}
+          </select>
+        </div>
+        {canPickCenter ? (
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Coaching Center</label>
+            <select className={input} value={form.coachingCenter} onChange={(e) => setField('coachingCenter', e.target.value)}>
+              <option value="">Global (RiseRank's own content)</option>
+              {centers.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+            </select>
+          </div>
+        ) : isCoachingAdmin ? (
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Coaching Center</label>
+            <p className="text-sm text-gray-500 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">Your coaching center (assigned automatically)</p>
+          </div>
+        ) : null}
+      </div>
+
       {/* Daily Quiz */}
       <div className="flex items-center gap-6">
         <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
@@ -210,12 +247,15 @@ function QuizForm({ form, setForm, onSubmit, loading }) {
 
 export default function Quizzes() {
   const toast = useToast();
+  const { admin, isCoachingAdmin, isSuperAdmin, isAdminRole } = useAuth();
   const [quizzes, setQuizzes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [centers, setCenters] = useState([]);
+  const [centerFilter, setCenterFilter] = useState('');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -226,6 +266,13 @@ export default function Quizzes() {
   const [deleting, setDeleting] = useState(false);
 
   const LIMIT = 20;
+  const ownCenterId = typeof admin?.coachingCenter === 'object' ? admin?.coachingCenter?._id : admin?.coachingCenter;
+
+  useEffect(() => {
+    if (isSuperAdmin || isAdminRole) {
+      coachingCentersAPI.list({ limit: 100 }).then(({ data }) => setCenters(data.data ?? [])).catch(() => {});
+    }
+  }, [isSuperAdmin, isAdminRole]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -233,15 +280,19 @@ export default function Quizzes() {
       const params = { page, limit: LIMIT };
       if (filterCategory) params.examCategory = filterCategory;
       if (filterStatus)   params.status        = filterStatus;
+      // Same "elevated view of own content" pattern as Videos/Playlists.
+      if (isCoachingAdmin && ownCenterId) params.coachingCenter = ownCenterId;
+      else if (centerFilter) params.coachingCenter = centerFilter;
       const { data } = await quizzesAPI.list(params);
       setQuizzes(data.data?.quizzes ?? data.data ?? []);
-      setTotal(data.data?.total ?? data.total ?? 0);
-    } catch {
-      toast('Failed to load quizzes', 'error');
+      setTotal(data.pagination?.total ?? data.data?.total ?? data.total ?? 0);
+    } catch (err) {
+      if (err?.response?.status === 403) toast("You don't have permission to perform this action.", 'error');
+      else toast('Failed to load quizzes', 'error');
     } finally {
       setLoading(false);
     }
-  }, [page, filterCategory, filterStatus]);
+  }, [page, filterCategory, filterStatus, centerFilter, isCoachingAdmin, ownCenterId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -257,6 +308,7 @@ export default function Quizzes() {
       title:           q.title         ?? { en: '', hi: '' },
       description:     q.description   ?? { en: '', hi: '' },
       examCategory:    q.examCategory  ?? 'ssc',
+      exam:            (typeof q.exam === 'object' ? q.exam?._id : q.exam) ?? '',
       durationMinutes: q.durationMinutes ?? Math.round((q.durationSeconds ?? 1800) / 60),
       totalMarks:      q.totalMarks    ?? 0,
       negativeMarking: q.negativeMarking    ?? false,
@@ -265,6 +317,7 @@ export default function Quizzes() {
       isDaily:         q.isDaily       ?? false,
       scheduledDate:   q.scheduledDate ? q.scheduledDate.slice(0, 10) : '',
       questions:       q.questions     ?? [],
+      coachingCenter:  (typeof q.coachingCenter === 'object' ? q.coachingCenter?._id : q.coachingCenter) ?? '',
     });
     setModalOpen(true);
   };
@@ -277,6 +330,7 @@ export default function Quizzes() {
       title:            form.title,
       description:      form.description,
       examCategory:     form.examCategory,
+      exam:             form.exam || null,
       durationSeconds:  form.durationMinutes * 60,   // convert minutes → seconds
       totalMarks:       form.totalMarks || null,      // null = 1 mark per question
       negativeMarking:  form.negativeMarking,
@@ -286,6 +340,12 @@ export default function Quizzes() {
       ...(form.isDaily && form.scheduledDate ? { scheduledDate: form.scheduledDate } : {}),
       questions:        form.questions.map((q) => q._id ?? q),
     };
+    if (isCoachingAdmin) {
+      // Never sent by a Coaching Admin — stampCoachingCenter/
+      // stripCoachingReassignment enforce this server-side regardless.
+    } else {
+      payload.coachingCenter = form.coachingCenter || null;
+    }
     try {
       if (editTarget) {
         await quizzesAPI.update(editTarget._id, payload);
@@ -350,6 +410,16 @@ export default function Quizzes() {
           <option value="published">Published</option>
           <option value="archived">Archived</option>
         </select>
+        {(isSuperAdmin || isAdminRole) && centers.length > 0 && (
+          <select
+            value={centerFilter}
+            onChange={(e) => { setCenterFilter(e.target.value); setPage(1); }}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="">All Coaching Centers</option>
+            {centers.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -365,6 +435,7 @@ export default function Quizzes() {
                 <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Category</th>
                 <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-16">Qs</th>
                 <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-16">Dur</th>
+                <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Coaching Center</th>
                 <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Status</th>
                 <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20 text-right">Actions</th>
               </tr>
@@ -385,6 +456,11 @@ export default function Quizzes() {
                   <td className="px-4 py-3 text-gray-500">{q.questions?.length ?? 0}</td>
                   <td className="px-4 py-3 text-gray-500">
                     {q.durationMinutes ?? Math.round((q.durationSeconds ?? 0) / 60)}m
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-500">
+                    {q.coachingCenter
+                      ? (centers.find((c) => c._id === (q.coachingCenter?._id ?? q.coachingCenter))?.name ?? 'Coaching Center')
+                      : <span className="text-gray-300">Global</span>}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${

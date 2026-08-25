@@ -8,8 +8,9 @@
  * dedicated to one type (e.g. Live Scheduler always creates type='live').
  */
 
-import { useState, useEffect } from 'react';
-import { teachersAPI, batchesAPI } from '../api/client';
+import { useState, useEffect, useRef } from 'react';
+import { teachersAPI, batchesAPI, examsAPI, coachingCentersAPI, uploadAPI } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 
 export const EMPTY_VIDEO_FORM = {
   title:           { en: '', hi: '' },
@@ -23,26 +24,67 @@ export const EMPTY_VIDEO_FORM = {
   teacher:          '',
   playlist:         '',
   examTags:         [],
+  exams:            [],   // Phase 8/9: dynamic Exam refs, additive alongside examTags
   accessType:       'public',
   allowedBatches:   [],
+  coachingCenter:   '',   // admin/superadmin only — see the Coaching Center field below
 };
 
 const input = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500';
 const label = 'block text-xs font-semibold text-gray-600 mb-1';
 
 export function VideoForm({ form, setForm, onSubmit, loading, lockType }) {
+  const { isSuperAdmin, isAdminRole } = useAuth();
   const [teachers, setTeachers] = useState([]);
   const [batches, setBatches] = useState([]);
+  const [exams, setExams] = useState([]);
+  const [centers, setCenters] = useState([]);
+  const [thumbUploading, setThumbUploading] = useState(false);
+  const [thumbError, setThumbError] = useState('');
+  const thumbFileRef = useRef(null);
+
+  const canPickCenter = isSuperAdmin || isAdminRole;
 
   useEffect(() => {
     teachersAPI.list({ limit: 100 }).then(({ data }) => setTeachers(data.data ?? [])).catch(() => {});
     batchesAPI.list({ limit: 100, isActive: true }).then(({ data }) => setBatches(data.data ?? [])).catch(() => {});
-  }, []);
+    examsAPI.list({ limit: 100, status: 'published' }).then(({ data }) => setExams(data.data ?? [])).catch(() => {});
+    if (canPickCenter) {
+      coachingCentersAPI.list({ limit: 100 }).then(({ data }) => setCenters(data.data ?? [])).catch(() => {});
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const ytIdForThumb = (form.type === 'live' ? form.youtubeLiveId : form.youtubeVideoId)?.trim();
 
   const set = (key, val) => setForm((p) => ({ ...p, [key]: val }));
   const setBi = (field, lang, val) => setForm((p) => ({ ...p, [field]: { ...p[field], [lang]: val } }));
   const toggleBatch = (id) =>
     set('allowedBatches', form.allowedBatches.includes(id) ? form.allowedBatches.filter((b) => b !== id) : [...form.allowedBatches, id]);
+  const toggleExam = (id) =>
+    set('exams', form.exams.includes(id) ? form.exams.filter((e) => e !== id) : [...form.exams, id]);
+
+  const handleThumbnailUpload = async (file) => {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setThumbError('Only JPEG, PNG, or WebP images are allowed');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setThumbError('Image too large — max 5MB');
+      return;
+    }
+    setThumbError('');
+    setThumbUploading(true);
+    try {
+      const { data } = await uploadAPI.videoThumbnail(file);
+      set('thumbnailUrl', data.data.url);
+    } catch (err) {
+      setThumbError(err?.response?.data?.message ?? 'Upload failed');
+    } finally {
+      setThumbUploading(false);
+      if (thumbFileRef.current) thumbFileRef.current.value = '';
+    }
+  };
 
   return (
     <form onSubmit={onSubmit} className="space-y-5">
@@ -71,8 +113,66 @@ export function VideoForm({ form, setForm, onSubmit, loading, lockType }) {
       </div>
 
       <div>
-        <label className={label}>Thumbnail URL</label>
-        <input className={input} value={form.thumbnailUrl} onChange={(e) => set('thumbnailUrl', e.target.value)} placeholder="https://…" />
+        <label className={label}>Thumbnail</label>
+        <div className="flex gap-3 items-start">
+          <div className="w-32 h-20 shrink-0 rounded-lg border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center">
+            {form.thumbnailUrl ? (
+              <img
+                src={form.thumbnailUrl}
+                alt="Thumbnail preview"
+                className="w-full h-full object-cover"
+                onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+              />
+            ) : null}
+            <div
+              className="w-full h-full items-center justify-center text-[10px] text-gray-400 text-center px-1"
+              style={{ display: form.thumbnailUrl ? 'none' : 'flex' }}
+            >
+              No preview
+            </div>
+          </div>
+          <div className="flex-1">
+            <div className="flex gap-2">
+              <input
+                className={input}
+                value={form.thumbnailUrl}
+                onChange={(e) => set('thumbnailUrl', e.target.value)}
+                placeholder="https://… (auto-filled from the YouTube ID if left blank)"
+              />
+              <input
+                ref={thumbFileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => handleThumbnailUpload(e.target.files?.[0])}
+              />
+              <button
+                type="button"
+                disabled={thumbUploading}
+                onClick={() => thumbFileRef.current?.click()}
+                className="shrink-0 px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {thumbUploading ? 'Uploading…' : '📤 Upload'}
+              </button>
+            </div>
+            {thumbError && <p className="text-xs text-red-500 mt-1">{thumbError}</p>}
+            <p className="text-xs text-gray-400 mt-1">
+              Upload your own image, paste a URL, or leave blank to auto-use the YouTube thumbnail for the video/live ID below.
+              {ytIdForThumb && !form.thumbnailUrl && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="text-primary-600 hover:underline font-medium"
+                    onClick={() => set('thumbnailUrl', `https://img.youtube.com/vi/${ytIdForThumb}/hqdefault.jpg`)}
+                  >
+                    Use it now
+                  </button>
+                </>
+              )}
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Type — hidden when the page locks it */}
@@ -145,6 +245,48 @@ export function VideoForm({ form, setForm, onSubmit, loading, lockType }) {
           <p className="text-xs text-amber-600 mt-1">⚠️ Without a teacher, this video won't appear under any "Browse by Teacher" card on the app.</p>
         )}
       </div>
+
+      {/* Exams — dynamic catalog, additive alongside the legacy examTags
+          static enum (kept elsewhere/unused in this form per the mobile
+          app's current Browse-by-Teacher-only behavior, see comment above). */}
+      <div>
+        <label className={label}>Exams</label>
+        {exams.length === 0 ? (
+          <p className="text-xs text-gray-400">No exams available yet.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {exams.map((ex) => (
+              <button
+                type="button"
+                key={ex._id}
+                onClick={() => toggleExam(ex._id)}
+                className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                  form.exams.includes(ex._id)
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-white text-gray-600 border-gray-300 hover:border-primary-300'
+                }`}
+              >
+                {ex.name} {form.exams.includes(ex._id) ? '✓' : ''}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Coaching Center — admin/superadmin only. A Coaching Admin can never
+          see or set this: the backend's stampCoachingCenter middleware
+          always forces it to their own center server-side regardless of
+          what's sent, so hiding it here is UX-consistency, not the actual
+          security boundary (per spec §25). */}
+      {canPickCenter && (
+        <div>
+          <label className={label}>Coaching Center</label>
+          <select className={input} value={form.coachingCenter} onChange={(e) => set('coachingCenter', e.target.value)}>
+            <option value="">Global (RiseRank's own content)</option>
+            {centers.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>
+        </div>
+      )}
 
       {/* Access control — the important part */}
       <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">

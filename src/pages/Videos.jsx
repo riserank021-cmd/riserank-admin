@@ -7,10 +7,11 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { videosAPI } from '../api/client';
+import { videosAPI, coachingCentersAPI } from '../api/client';
 import { Modal, ConfirmModal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import { VideoForm, EMPTY_VIDEO_FORM } from '../components/VideoForm';
+import { useAuth } from '../hooks/useAuth';
 
 const STATUS_BADGE = {
   draft:     'bg-gray-100 text-gray-600',
@@ -26,6 +27,7 @@ function toDatetimeLocal(d) {
 
 export default function Videos() {
   const toast = useToast();
+  const { admin, isCoachingAdmin, isSuperAdmin, isAdminRole } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -33,6 +35,8 @@ export default function Videos() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [centerFilter, setCenterFilter] = useState('');
+  const [centers, setCenters] = useState([]);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -47,6 +51,13 @@ export default function Videos() {
   const [togglingId, setTogglingId] = useState(null);
 
   const LIMIT = 20;
+  const ownCenterId = typeof admin?.coachingCenter === 'object' ? admin?.coachingCenter?._id : admin?.coachingCenter;
+
+  useEffect(() => {
+    if (isSuperAdmin || isAdminRole) {
+      coachingCentersAPI.list({ limit: 100 }).then(({ data }) => setCenters(data.data ?? [])).catch(() => {});
+    }
+  }, [isSuperAdmin, isAdminRole]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,15 +66,24 @@ export default function Videos() {
       if (typeFilter) params.type = typeFilter;
       if (statusFilter) params.status = statusFilter;
       if (search) params.search = search;
+      // Coaching Admin: must explicitly pass their own center to get the
+      // "elevated" (full-status, including drafts) view of their own
+      // content — see video.service.js's list()'s `requestingOwnCenter`
+      // logic. Without this they'd only see published videos, same as a
+      // student. Admin/Super Admin: optional filter dropdown to inspect one
+      // center's catalog; omitted shows everything (their normal full view).
+      if (isCoachingAdmin && ownCenterId) params.coachingCenter = ownCenterId;
+      else if (centerFilter) params.coachingCenter = centerFilter;
       const { data } = await videosAPI.list(params);
       setItems(data.data ?? []);
       setTotalPages(data.pagination?.totalPages ?? 1);
-    } catch {
-      toast('Failed to load videos', 'error');
+    } catch (err) {
+      if (err?.response?.status === 403) toast("You don't have permission to perform this action.", 'error');
+      else toast('Failed to load videos', 'error');
     } finally {
       setLoading(false);
     }
-  }, [page, typeFilter, statusFilter, search]);
+  }, [page, typeFilter, statusFilter, search, centerFilter, isCoachingAdmin, ownCenterId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -87,8 +107,10 @@ export default function Videos() {
       teacher: v.teacher?._id ?? v.teacher ?? '',
       playlist: v.playlist?._id ?? v.playlist ?? '',
       examTags: v.examTags ?? [],
+      exams: (v.exams ?? []).map((ex) => ex._id ?? ex),
       accessType: v.accessType ?? 'public',
       allowedBatches: (v.allowedBatches ?? []).map((b) => b._id ?? b),
+      coachingCenter: (typeof v.coachingCenter === 'object' ? v.coachingCenter?._id : v.coachingCenter) ?? '',
     });
     setModalOpen(true);
   };
@@ -111,6 +133,15 @@ export default function Videos() {
       if (!payload.teacher) delete payload.teacher;
       if (!payload.playlist) delete payload.playlist;
       if (payload.accessType !== 'batch') delete payload.allowedBatches;
+      // Coaching Admin never sends this field (VideoForm hides it entirely
+      // for that role, leaving it '' from EMPTY_VIDEO_FORM) — the backend's
+      // stampCoachingCenter middleware sets it from their own account
+      // regardless, and stripCoachingReassignment drops it on update anyway.
+      // For admin/superadmin, an empty selection explicitly means "Global"
+      // (null), not "leave unchanged" — so it must be sent as null, not
+      // omitted, or clearing a center back to Global would silently no-op.
+      if (isCoachingAdmin) delete payload.coachingCenter;
+      else if (!payload.coachingCenter) payload.coachingCenter = null;
 
       if (editTarget) {
         await videosAPI.update(editTarget._id, payload);
@@ -197,6 +228,16 @@ export default function Videos() {
             {s === '' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}
           </button>
         ))}
+        {(isSuperAdmin || isAdminRole) && centers.length > 0 && (
+          <select
+            value={centerFilter}
+            onChange={(e) => { setPage(1); setCenterFilter(e.target.value); }}
+            className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold text-gray-600"
+          >
+            <option value="">All Coaching Centers</option>
+            {centers.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>
+        )}
       </div>
 
       {loading ? (
@@ -211,10 +252,12 @@ export default function Videos() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Thumb</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Title</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Type</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Access</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Teacher</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Coaching Center</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Status</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Views</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Actions</th>
@@ -223,6 +266,20 @@ export default function Videos() {
             <tbody className="divide-y divide-gray-100">
               {items.map((v) => (
                 <tr key={v._id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <div className="w-16 h-10 rounded border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center">
+                      {v.thumbnailUrl ? (
+                        <img
+                          src={v.thumbnailUrl}
+                          alt=""
+                          className="w-full h-full object-cover"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      ) : (
+                        <span className="text-[9px] text-gray-400">none</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <p className="font-medium text-gray-900 line-clamp-1 max-w-xs">{v.title?.en ?? '—'}</p>
                   </td>
@@ -235,6 +292,11 @@ export default function Videos() {
                     {v.accessType}{v.accessType === 'batch' ? ` (${v.allowedBatches?.length ?? 0})` : ''}
                   </td>
                   <td className="px-4 py-3 text-gray-600">{v.teacher?.name ?? '—'}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500">
+                    {v.coachingCenter
+                      ? (centers.find((c) => c._id === (v.coachingCenter?._id ?? v.coachingCenter))?.name ?? v.coachingCenter?.name ?? 'Coaching Center')
+                      : <span className="text-gray-300">Global</span>}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGE[v.status]}`}>
                       {v.status}

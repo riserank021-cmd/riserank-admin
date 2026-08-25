@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { analyticsAPI } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
+import CoachingAdminDashboard from './CoachingAdminDashboard';
 
-function StatCard({ icon, label, value, sub, color }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
+function StatCard({ icon, label, value, sub, color, to }) {
+  const content = (
+    <div className={`bg-white rounded-xl border border-gray-200 p-5 h-full ${to ? 'transition-shadow hover:shadow-md hover:border-gray-300' : ''}`}>
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg mb-3 ${color}`}>
         {icon}
       </div>
@@ -12,14 +15,25 @@ function StatCard({ icon, label, value, sub, color }) {
       {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
     </div>
   );
+
+  // Only wrap in a Link when a destination is provided — cards with nowhere
+  // to drill down (e.g. Bookmarks, which has no dedicated list page) stay
+  // plain so we don't ship dead/misleading links.
+  return to ? <Link to={to} className="block h-full">{content}</Link> : content;
 }
 
 export default function Dashboard() {
+  // isCoachingAdmin is the ONLY thing this file branches on — Admin/Super
+  // Admin fall through to the exact pre-Phase-9 dashboard below, unmodified,
+  // per the explicit instruction not to redesign/expand their existing
+  // behavior for the Coaching Center feature's sake.
+  const { isCoachingAdmin } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (isCoachingAdmin) { setLoading(false); return; } // separate dashboard below
     analyticsAPI.overview()
       .then(({ data }) => setStats(data.data))
       .catch((err) => {
@@ -30,7 +44,9 @@ export default function Dashboard() {
         }
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [isCoachingAdmin]);
+
+  if (isCoachingAdmin) return <CoachingAdminDashboard />;
 
   const fmt = (n) => (n != null ? n.toLocaleString() : '—');
 
@@ -59,14 +75,14 @@ export default function Dashboard() {
       {stats && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <StatCard icon="👥" label="Total Users"        value={fmt(stats.totalUsers)}        color="bg-blue-50"   />
-            <StatCard icon="📅" label="DAU (today)"        value={fmt(stats.dau)}               color="bg-green-50"  />
-            <StatCard icon="❓" label="Total Questions"    value={fmt(stats.totalQuestions)}    color="bg-purple-50" />
-            <StatCard icon="📝" label="Total Quizzes"      value={fmt(stats.totalQuizzes)}      color="bg-orange-50" />
-            <StatCard icon="🎯" label="Quiz Attempts"      value={fmt(stats.totalAttempts)}     color="bg-pink-50"   />
-            <StatCard icon="📰" label="Current Affairs"    value={fmt(stats.totalAffairs)}      color="bg-cyan-50"   />
+            <StatCard icon="👥" label="Total Users"        value={fmt(stats.totalUsers)}        color="bg-blue-50"   to="/users" />
+            <StatCard icon="📅" label="DAU (today)"        value={fmt(stats.dau)}               color="bg-green-50"  to="/analytics" />
+            <StatCard icon="❓" label="Total Questions"    value={fmt(stats.totalQuestions)}    color="bg-purple-50" to="/questions" />
+            <StatCard icon="📝" label="Total Quizzes"      value={fmt(stats.totalQuizzes)}      color="bg-orange-50" to="/quizzes" />
+            <StatCard icon="🎯" label="Quiz Attempts"      value={fmt(stats.totalAttempts)}     color="bg-pink-50"   to="/analytics" />
+            <StatCard icon="📰" label="Current Affairs"    value={fmt(stats.totalAffairs)}      color="bg-cyan-50"   to="/current-affairs" />
             <StatCard icon="🔖" label="Bookmarks"          value={fmt(stats.totalBookmarks)}    color="bg-yellow-50" />
-            <StatCard icon="🚩" label="Pending Reports"    value={fmt(stats.pendingReports)}    color="bg-red-50"    />
+            <StatCard icon="🚩" label="Pending Reports"    value={fmt(stats.pendingReports)}    color="bg-red-50"    to="/reports" />
           </div>
 
           {stats.newUsersToday != null && (

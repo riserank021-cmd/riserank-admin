@@ -209,6 +209,7 @@ export default function Questions() {
   const [search, setSearch] = useState('');
   const [filterDiff, setFilterDiff] = useState('');
   const [filterCat, setFilterCat] = useState('');
+  const [filterFlagged, setFilterFlagged] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -227,6 +228,7 @@ export default function Questions() {
       if (search)     params.search       = search;
       if (filterDiff) params.difficulty   = filterDiff;
       if (filterCat)  params.examCategory = filterCat;  // backend param name
+      if (filterFlagged) params.flagged   = 'true';
       const { data } = await questionsAPI.list(params);
       setQuestions(data.data?.questions ?? data.data ?? []);
       setTotal(data.data?.total ?? data.total ?? 0);
@@ -235,7 +237,7 @@ export default function Questions() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, filterDiff, filterCat]);
+  }, [page, search, filterDiff, filterCat, filterFlagged]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -353,6 +355,17 @@ export default function Questions() {
             <option key={c.value} value={c.value}>{c.label}</option>
           ))}
         </select>
+        <button
+          onClick={() => { setFilterFlagged((f) => !f); setPage(1); }}
+          className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
+            filterFlagged
+              ? 'bg-red-50 border-red-200 text-red-700'
+              : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+          }`}
+          title="Show only questions currently flagged by student reports"
+        >
+          🚩 Flagged only
+        </button>
       </div>
 
       {/* Table */}
@@ -375,7 +388,10 @@ export default function Questions() {
               {questions.map((q) => (
                 <tr key={q._id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-gray-800 max-w-0">
-                    <div className="truncate font-medium">{q.questionText?.en ?? '—'}</div>
+                    <div className="truncate font-medium flex items-center gap-1.5">
+                      {q.isReported && <span title={`Reported ${q.reportCount ?? ''}x`}>🚩</span>}
+                      {q.questionText?.en ?? '—'}
+                    </div>
                     {q.questionText?.hi && (
                       <div className="truncate text-xs text-gray-400">{q.questionText.hi}</div>
                     )}

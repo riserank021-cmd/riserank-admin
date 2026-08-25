@@ -41,7 +41,19 @@ function LiveCard({ video, onEnd, onEdit }) {
   const countdown = useCountdown(video.scheduledAt);
   const isLive = video.liveStatus === 'live';
   return (
-    <div className={`border rounded-xl p-4 bg-white ${isLive ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200'}`}>
+    <div className={`border rounded-xl overflow-hidden bg-white ${isLive ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200'}`}>
+      <div className="w-full h-32 bg-gray-100 flex items-center justify-center overflow-hidden">
+        {video.thumbnailUrl ? (
+          <img
+            src={video.thumbnailUrl}
+            alt=""
+            className="w-full h-full object-cover"
+            onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+          />
+        ) : null}
+        <div className="text-xs text-gray-400" style={{ display: video.thumbnailUrl ? 'none' : 'block' }}>No thumbnail</div>
+      </div>
+      <div className="p-4">
       <div className="flex items-start justify-between mb-2">
         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isLive ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
           {isLive ? '🔴 LIVE NOW' : `📅 Upcoming ${countdown}`}
@@ -62,6 +74,7 @@ function LiveCard({ video, onEnd, onEdit }) {
             End Live
           </button>
         )}
+      </div>
       </div>
     </div>
   );

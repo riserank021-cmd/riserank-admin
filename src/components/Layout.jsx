@@ -1,31 +1,79 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
-const NAV = [
-  { to: '/',                icon: '📊', label: 'Dashboard'       },
-  { to: '/questions',       icon: '❓', label: 'Questions'        },
-  { to: '/quizzes',         icon: '📝', label: 'Quizzes'          },
-  { to: '/current-affairs', icon: '📰', label: 'Current Affairs'  },
-  { to: '/categories',      icon: '📂', label: 'Categories'       },
-  { to: '/users',           icon: '👥', label: 'Users'            },
-  { to: '/reports',         icon: '🚩', label: 'Reports'          },
-  { to: '/notifications',   icon: '🔔', label: 'Notifications'    },
-  { to: '/import',          icon: '⬆️', label: 'Bulk Import'      },
-  { to: '/analytics',       icon: '📈', label: 'Analytics'        },
-  { to: '/live-tests',      icon: '🔴', label: 'Live Tests'        },
-  { to: '/video-dashboard', icon: '🎥', label: 'Video Dashboard'   },
-  { to: '/videos',          icon: '🎬', label: 'Videos'            },
-  { to: '/live-scheduler',  icon: '📡', label: 'Live Scheduler'    },
-  { to: '/playlists',       icon: '📁', label: 'Courses'           },
-  { to: '/course-requests', icon: '🔑', label: 'Course Requests'   },
-  { to: '/teachers',        icon: '🧑‍🏫', label: 'Teachers'          },
-  { to: '/batches',         icon: '👥', label: 'Batches'           },
-  { to: '/video-analytics', icon: '📈', label: 'Video Analytics'   },
+// ── Role-based sidebar (Phase 9) ──────────────────────────────────────────────
+// Frontend nav visibility is UX only — the real security boundary is the
+// backend's authorize()/requireCoachingOwnership middleware on each route.
+// These lists are additionally shaped by what the backend ACTUALLY allows
+// per role today (not just what would be ideal), specifically:
+//   - "Admins" (create/update Admin & Coaching Admin accounts) is
+//     SUPER_ADMIN only — PATCH/POST /admin/admins has no ADMIN grant.
+//   - "Activity Logs" is SUPER_ADMIN only — GET /analytics/admin-logs is
+//     gated by authorize(ROLES.SUPER_ADMIN) only, not ALL_ADMINS.
+//   - "Coaching Centers" and "Exams" (global) are ADMIN + SUPER_ADMIN.
+//   - Users/Reports/Analytics/System Health/etc. are unchanged from before
+//     this feature — still ADMIN + SUPER_ADMIN, same as always.
+const SUPER_ADMIN_ONLY_NAV = [
+  { to: '/admins',          icon: '🛡️', label: 'Admins'            },
 ];
+
+const ADMIN_SHARED_NAV = [
+  { to: '/users',            icon: '👥', label: 'Users'            },
+  { to: '/coaching-centers', icon: '🏫', label: 'Coaching Centers' },
+  { to: '/exams',            icon: '🎯', label: 'Exams'             },
+  { to: '/current-affairs',  icon: '📰', label: 'Current Affairs'   },
+  { to: '/quizzes',          icon: '📝', label: 'Quizzes'           },
+  { to: '/questions',        icon: '❓', label: 'Questions'         },
+  { to: '/videos',           icon: '🎬', label: 'Videos'            },
+  { to: '/video-dashboard',  icon: '🎥', label: 'Video Dashboard'   },
+  { to: '/live-scheduler',   icon: '📡', label: 'Live Scheduler'    },
+  { to: '/playlists',        icon: '📁', label: 'Courses'           },
+  { to: '/course-requests',  icon: '🔑', label: 'Course Requests'   },
+  { to: '/teachers',         icon: '🧑‍🏫', label: 'Teachers'          },
+  { to: '/batches',          icon: '👥', label: 'Batches'           },
+  { to: '/categories',       icon: '📂', label: 'Categories'        },
+  { to: '/live-tests',       icon: '🔴', label: 'Live Tests'        },
+  { to: '/reports',          icon: '🚩', label: 'Reports'           },
+  { to: '/analytics',        icon: '📈', label: 'Analytics'         },
+  { to: '/video-analytics',  icon: '📈', label: 'Video Analytics'   },
+  { to: '/notifications',    icon: '🔔', label: 'Notifications'     },
+  { to: '/import',           icon: '⬆️', label: 'Bulk Import'       },
+  { to: '/system-health',    icon: '🩺', label: 'System Health'     },
+  { to: '/exam-dates',       icon: '📅', label: 'Exam Dates'        },
+  { to: '/faqs',             icon: '❓', label: 'FAQs'               },
+  { to: '/support-tickets',  icon: '🎫', label: 'Support Tickets'   },
+];
+
+const SUPER_ADMIN_TAIL_NAV = [
+  { to: '/activity-logs',   icon: '🕵️', label: 'Activity Logs'     },
+];
+
+const COACHING_ADMIN_NAV = [
+  { to: '/',           icon: '📊', label: 'Dashboard'  },
+  { to: '/exams',      icon: '🎯', label: 'Exams'       },
+  { to: '/videos',     icon: '🎬', label: 'Videos'      },
+  { to: '/playlists',  icon: '📁', label: 'Courses'     },
+  { to: '/teachers',   icon: '🧑‍🏫', label: 'Teachers'   },
+  { to: '/quizzes',    icon: '📝', label: 'Quizzes'     },
+  { to: '/profile',    icon: '👤', label: 'My Profile'  },
+];
+
+function buildNav(role) {
+  const dashboard = { to: '/', icon: '📊', label: 'Dashboard' };
+  const profile = { to: '/profile', icon: '👤', label: 'My Profile' };
+
+  if (role === 'coaching_admin') return COACHING_ADMIN_NAV;
+  if (role === 'superadmin') {
+    return [dashboard, ...SUPER_ADMIN_ONLY_NAV, ...ADMIN_SHARED_NAV, ...SUPER_ADMIN_TAIL_NAV, profile];
+  }
+  // 'admin' (and any unexpected role, fails safe to the smallest set)
+  return [dashboard, ...ADMIN_SHARED_NAV, profile];
+}
 
 export function Layout({ children }) {
   const { admin, logout } = useAuth();
   const navigate = useNavigate();
+  const NAV = buildNav(admin?.role);
 
   const handleLogout = () => {
     logout();
@@ -76,7 +124,7 @@ export function Layout({ children }) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold text-gray-900 truncate">{admin?.name ?? 'Admin'}</div>
-              <div className="text-xs text-gray-400 capitalize">{admin?.role ?? 'admin'}</div>
+              <div className="text-xs text-gray-400 capitalize">{(admin?.role ?? 'admin').replace('_', ' ')}</div>
             </div>
           </div>
           <button

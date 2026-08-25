@@ -3,12 +3,26 @@ import { reportsAPI } from '../api/client';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 
+// Must match Report.js's REPORT_REASONS enum exactly, or unmapped reasons
+// silently fall back to the raw enum value below.
 const REASON_LABELS = {
   wrong_answer: 'Wrong Answer',
-  incorrect_question: 'Incorrect Question',
-  typo_or_language: 'Typo / Language',
+  unclear_question: 'Unclear Question',
+  typo_or_grammar: 'Typo / Grammar',
+  wrong_translation: 'Wrong Translation',
   outdated_content: 'Outdated Content',
   other: 'Other',
+};
+
+// Must match Report.js's REPORT_STATUS enum ('rejected', not 'dismissed') —
+// sending 'dismissed' fails Joi validation server-side (admin.validator.js),
+// so the old "Dismiss" button here always errored. Label stays "Dismiss" for
+// the admin; the value sent to the API is 'rejected'.
+const STATUS_LABELS = {
+  pending: 'Pending',
+  reviewed: 'Reviewed',
+  resolved: 'Resolved',
+  rejected: 'Dismissed',
 };
 
 function StatusBadge({ status }) {
@@ -16,11 +30,11 @@ function StatusBadge({ status }) {
     pending: 'bg-yellow-100 text-yellow-700',
     reviewed: 'bg-blue-100 text-blue-700',
     resolved: 'bg-green-100 text-green-700',
-    dismissed: 'bg-gray-100 text-gray-500',
+    rejected: 'bg-gray-100 text-gray-500',
   };
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? 'bg-gray-100 text-gray-600'}`}>
-      {status}
+      {STATUS_LABELS[status] ?? status}
     </span>
   );
 }
@@ -35,7 +49,7 @@ function ReportDetailModal({ report, open, onClose, onReview }) {
     e.preventDefault();
     setSaving(true);
     try {
-      await onReview(report._id, { status: action, adminNote });
+      await onReview(report._id, { status: action, reviewNote: adminNote });
       toast('Report updated');
       onClose();
     } catch {
@@ -54,11 +68,8 @@ function ReportDetailModal({ report, open, onClose, onReview }) {
           {/* Question Info */}
           <div className="bg-gray-50 rounded-xl p-4">
             <div className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Question</div>
-            <p className="text-sm text-gray-800 font-medium">{q?.text?.en ?? q?.text ?? 'Question removed'}</p>
-            {q?.text?.hi && <p className="text-xs text-gray-500 mt-1">{q.text.hi}</p>}
-            {q?.correctOption && (
-              <p className="text-xs text-green-600 mt-2">✓ Correct: {q.correctOption} — {q?.options?.[q.correctOption]?.en}</p>
-            )}
+            <p className="text-sm text-gray-800 font-medium">{q?.questionText?.en ?? q?.text?.en ?? 'Question removed'}</p>
+            {(q?.questionText?.hi ?? q?.text?.hi) && <p className="text-xs text-gray-500 mt-1">{q.questionText?.hi ?? q.text?.hi}</p>}
           </div>
 
           {/* Reporter + Reason */}
@@ -89,7 +100,7 @@ function ReportDetailModal({ report, open, onClose, onReview }) {
           {report.status === 'pending' && (
             <form onSubmit={handleSubmit} className="space-y-3 pt-3 border-t">
               <div className="flex gap-3">
-                {['resolved', 'dismissed'].map((s) => (
+                {['resolved', 'rejected'].map((s) => (
                   <label key={s} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                     <input
                       type="radio"
@@ -99,7 +110,7 @@ function ReportDetailModal({ report, open, onClose, onReview }) {
                       onChange={() => setAction(s)}
                       className="accent-primary-600"
                     />
-                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                    {STATUS_LABELS[s]}
                   </label>
                 ))}
               </div>
@@ -138,6 +149,13 @@ export default function Reports() {
 
   const [selected, setSelected] = useState(null);
 
+  // Pending reports grouped by question — lets an admin resolve every report
+  // against one bad question in a single click instead of clicking through
+  // each duplicate report one at a time.
+  const [groups, setGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [bulkActingOn, setBulkActingOn] = useState(null); // questionId while a bulk action is in flight
+
   const LIMIT = 25;
 
   const load = useCallback(async () => {
@@ -147,7 +165,7 @@ export default function Reports() {
       if (filterStatus) params.status = filterStatus;
       const { data } = await reportsAPI.list(params);
       setReports(data.data?.reports ?? data.data ?? []);
-      setTotal(data.data?.total ?? data.total ?? 0);
+      setTotal(data.data?.total ?? data.total ?? data.pagination?.total ?? 0);
     } catch {
       toast('Failed to load reports', 'error');
     } finally {
@@ -155,11 +173,39 @@ export default function Reports() {
     }
   }, [page, filterStatus]);
 
+  const loadGroups = useCallback(async () => {
+    setGroupsLoading(true);
+    try {
+      const { data } = await reportsAPI.grouped();
+      setGroups(data.data ?? []);
+    } catch {
+      toast('Failed to load grouped reports', 'error');
+    } finally {
+      setGroupsLoading(false);
+    }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadGroups(); }, [loadGroups]);
 
   const handleReview = async (id, payload) => {
     await reportsAPI.review(id, payload);
     load();
+    loadGroups();
+  };
+
+  const bulkReview = async (questionId, status) => {
+    setBulkActingOn(questionId);
+    try {
+      const { data } = await reportsAPI.bulkReview(questionId, { status });
+      toast(`${data.data?.modified ?? 0} report(s) ${status === 'resolved' ? 'resolved' : 'dismissed'}`);
+      setGroups((prev) => prev.filter((g) => g.questionId !== questionId));
+      if (filterStatus === 'pending') load();
+    } catch {
+      toast('Bulk action failed', 'error');
+    } finally {
+      setBulkActingOn(null);
+    }
   };
 
   const totalPages = Math.ceil(total / LIMIT);
@@ -169,12 +215,50 @@ export default function Reports() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Reports</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{total.toLocaleString()} {filterStatus || 'total'}</p>
+          <p className="text-sm text-gray-500 mt-0.5">{total.toLocaleString()} {filterStatus ? STATUS_LABELS[filterStatus]?.toLowerCase() ?? filterStatus : 'total'}</p>
         </div>
       </div>
 
+      {/* Grouped bulk-resolve queue — always visible since it only ever holds pending reports */}
+      {!groupsLoading && groups.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">🚩 Flagged questions ({groups.length})</h2>
+          <div className="space-y-2">
+            {groups.map((g) => {
+              const busy = bulkActingOn === g.questionId;
+              return (
+                <div key={g.questionId} className="flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-xl">
+                  <div className="min-w-0 pr-4">
+                    <p className="text-sm text-gray-800 truncate">{g.question?.questionText?.en ?? '(question removed)'}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {g.reportCount} report{g.reportCount === 1 ? '' : 's'} · {g.reasons?.map((r) => REASON_LABELS[r] ?? r).join(', ')}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <button
+                      disabled={busy}
+                      onClick={() => bulkReview(g.questionId, 'rejected')}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Dismiss all
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={() => bulkReview(g.questionId, 'resolved')}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+                    >
+                      {busy ? 'Saving…' : `Resolve all ${g.reportCount}`}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-3 mb-4">
-        {['pending', 'resolved', 'dismissed', ''].map((s) => (
+        {['pending', 'resolved', 'rejected', ''].map((s) => (
           <button
             key={s}
             onClick={() => { setFilterStatus(s); setPage(1); }}
@@ -184,7 +268,7 @@ export default function Reports() {
                 : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-50'
             }`}
           >
-            {s === '' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+            {s === '' ? 'All' : STATUS_LABELS[s]}
           </button>
         ))}
       </div>
@@ -210,7 +294,7 @@ export default function Reports() {
               {reports.map((r) => (
                 <tr key={r._id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelected(r)}>
                   <td className="px-4 py-3 text-gray-700">
-                    <div className="truncate max-w-xs">{r.question?.text?.en ?? '(deleted)'}</div>
+                    <div className="truncate max-w-xs">{r.question?.questionText?.en ?? r.question?.text?.en ?? '(deleted)'}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-500">{REASON_LABELS[r.reason] ?? r.reason}</td>
                   <td className="px-4 py-3 text-gray-500 truncate">{r.user?.name ?? '—'}</td>

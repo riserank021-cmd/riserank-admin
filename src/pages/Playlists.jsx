@@ -5,20 +5,30 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { playlistsAPI, teachersAPI, videosAPI } from '../api/client';
+import { playlistsAPI, teachersAPI, videosAPI, examsAPI, coachingCentersAPI } from '../api/client';
 import { Modal, ConfirmModal } from '../components/Modal';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../hooks/useAuth';
 
-const EMPTY_FORM = { title: { en: '', hi: '' }, description: { en: '', hi: '' }, thumbnailUrl: '', teacher: '', visibility: 'public' };
+const EMPTY_FORM = { title: { en: '', hi: '' }, description: { en: '', hi: '' }, thumbnailUrl: '', teacher: '', visibility: 'public', exams: [], coachingCenter: '' };
 const input = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500';
 const label = 'block text-xs font-semibold text-gray-600 mb-1';
 
 function PlaylistForm({ form, setForm, onSubmit, loading }) {
+  const { isSuperAdmin, isAdminRole } = useAuth();
+  const canPickCenter = isSuperAdmin || isAdminRole;
   const [teachers, setTeachers] = useState([]);
-  useEffect(() => { teachersAPI.list({ limit: 100 }).then(({ data }) => setTeachers(data.data ?? [])).catch(() => {}); }, []);
+  const [exams, setExams] = useState([]);
+  const [centers, setCenters] = useState([]);
+  useEffect(() => {
+    teachersAPI.list({ limit: 100 }).then(({ data }) => setTeachers(data.data ?? [])).catch(() => {});
+    examsAPI.list({ limit: 100, status: 'published' }).then(({ data }) => setExams(data.data ?? [])).catch(() => {});
+    if (canPickCenter) coachingCentersAPI.list({ limit: 100 }).then(({ data }) => setCenters(data.data ?? [])).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (key, val) => setForm((p) => ({ ...p, [key]: val }));
   const setBi = (field, lang, val) => setForm((p) => ({ ...p, [field]: { ...p[field], [lang]: val } }));
+  const toggleExam = (id) => set('exams', form.exams.includes(id) ? form.exams.filter((e) => e !== id) : [...form.exams, id]);
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
@@ -55,6 +65,32 @@ function PlaylistForm({ form, setForm, onSubmit, loading }) {
           </select>
         </div>
       </div>
+      <div>
+        <label className={label}>Exams</label>
+        {exams.length === 0 ? (
+          <p className="text-xs text-gray-400">No exams available yet.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {exams.map((ex) => (
+              <button type="button" key={ex._id} onClick={() => toggleExam(ex._id)}
+                className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                  form.exams.includes(ex._id) ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300 hover:border-primary-300'
+                }`}>
+                {ex.name} {form.exams.includes(ex._id) ? '✓' : ''}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {canPickCenter && (
+        <div>
+          <label className={label}>Coaching Center</label>
+          <select className={input} value={form.coachingCenter} onChange={(e) => set('coachingCenter', e.target.value)}>
+            <option value="">Global (RiseRank's own content)</option>
+            {centers.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>
+        </div>
+      )}
       <div>
         <label className={label}>Visibility</label>
         <div className="flex gap-2">
@@ -197,8 +233,11 @@ function ManageVideos({ playlist, onClose }) {
 
 export default function Playlists() {
   const toast = useToast();
+  const { admin, isCoachingAdmin, isSuperAdmin, isAdminRole } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [centers, setCenters] = useState([]);
+  const [centerFilter, setCenterFilter] = useState('');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -207,17 +246,32 @@ export default function Playlists() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [manageTarget, setManageTarget] = useState(null);
 
+  const ownCenterId = typeof admin?.coachingCenter === 'object' ? admin?.coachingCenter?._id : admin?.coachingCenter;
+
+  useEffect(() => {
+    if (isSuperAdmin || isAdminRole) {
+      coachingCentersAPI.list({ limit: 100 }).then(({ data }) => setCenters(data.data ?? [])).catch(() => {});
+    }
+  }, [isSuperAdmin, isAdminRole]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await playlistsAPI.list({ limit: 100 });
+      const params = { limit: 100 };
+      // Same "elevated view of own content" pattern as Videos.jsx — a
+      // Coaching Admin must pass their own center explicitly to see their
+      // own drafts, otherwise they get the published-only student view.
+      if (isCoachingAdmin && ownCenterId) params.coachingCenter = ownCenterId;
+      else if (centerFilter) params.coachingCenter = centerFilter;
+      const { data } = await playlistsAPI.list(params);
       setItems(data.data ?? []);
-    } catch {
-      toast('Failed to load playlists', 'error');
+    } catch (err) {
+      if (err?.response?.status === 403) toast("You don't have permission to perform this action.", 'error');
+      else toast('Failed to load playlists', 'error');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isCoachingAdmin, ownCenterId, centerFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -230,6 +284,8 @@ export default function Playlists() {
       thumbnailUrl: p.thumbnailUrl ?? '',
       teacher: p.teacher?._id ?? p.teacher ?? '',
       visibility: p.visibility ?? 'public',
+      exams: (p.exams ?? []).map((ex) => ex._id ?? ex),
+      coachingCenter: (typeof p.coachingCenter === 'object' ? p.coachingCenter?._id : p.coachingCenter) ?? '',
     });
     setModalOpen(true);
   };
@@ -240,6 +296,8 @@ export default function Playlists() {
     try {
       const payload = { ...form };
       if (!payload.teacher) delete payload.teacher;
+      if (isCoachingAdmin) delete payload.coachingCenter;
+      else if (!payload.coachingCenter) payload.coachingCenter = null;
       if (editTarget) {
         await playlistsAPI.update(editTarget._id, payload);
         toast('Playlist updated');
@@ -290,6 +348,16 @@ export default function Playlists() {
         </button>
       </div>
 
+      {(isSuperAdmin || isAdminRole) && centers.length > 0 && (
+        <div className="mb-4">
+          <select value={centerFilter} onChange={(e) => setCenterFilter(e.target.value)}
+            className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold text-gray-600">
+            <option value="">All Coaching Centers</option>
+            {centers.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-16 text-gray-400">Loading…</div>
       ) : items.length === 0 ? (
@@ -312,7 +380,12 @@ export default function Playlists() {
                   </span>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mb-3">{p.teacher?.name ?? 'No teacher assigned'}</p>
+              <p className="text-xs text-gray-400 mb-1">{p.teacher?.name ?? 'No teacher assigned'}</p>
+              <p className="text-xs text-gray-400 mb-3">
+                {p.coachingCenter
+                  ? `Coaching Center: ${centers.find((c) => c._id === (p.coachingCenter?._id ?? p.coachingCenter))?.name ?? 'Coaching Center'}`
+                  : 'Global'}
+              </p>
               <div className="flex gap-2">
                 <button onClick={() => setManageTarget(p)} className="flex-1 text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg text-primary-600 hover:bg-primary-50">
                   🎬 Videos

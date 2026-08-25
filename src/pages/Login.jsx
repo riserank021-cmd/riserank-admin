@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { authAPI } from '../api/client';
+import { authAPI, adminsAPI } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 
 export default function Login() {
@@ -17,6 +17,19 @@ export default function Login() {
     try {
       const { data } = await authAPI.login(form.email, form.password);
       login(data.data.accessToken, data.data.admin);
+      // The login response's admin object is minimal (_id/name/email/role —
+      // see auth.service.js's loginAdmin) and doesn't include coachingCenter,
+      // which the sidebar/role-scoping needs for a Coaching Admin. Fetch the
+      // full self-profile immediately after so it's available from the first
+      // render — best-effort: if this fails, the admin still lands logged
+      // in, just without coachingCenter until it's fetched elsewhere (e.g.
+      // the Profile page).
+      try {
+        const me = await adminsAPI.getMe();
+        login(data.data.accessToken, me.data.data.admin);
+      } catch {
+        // non-fatal — proceed with the minimal profile from login
+      }
       navigate('/');
     } catch (err) {
       setError(err?.response?.data?.message ?? 'Invalid credentials');
