@@ -144,6 +144,9 @@ export const currentAffairsAPI = {
   remove: (id) => api.delete(`/current-affairs/${id}`),
   publish: (id) => api.patch(`/current-affairs/${id}/publish`),
   archive: (id) => api.patch(`/current-affairs/${id}/archive`),
+  // Image-reuse gallery (2026-09-30) -- distinct imageUrls already used by
+  // other articles, so an editor can pick one instead of uploading again.
+  imageGallery: () => api.get('/current-affairs/images/gallery'),
 };
 
 // ── Categories ────────────────────────────────────────────────────────────────

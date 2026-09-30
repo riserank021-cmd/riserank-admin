@@ -83,6 +83,10 @@ function AffairForm({ form, setForm, onSubmit, loading, editTarget }) {
   const [imageUploading, setImageUploading] = useState(false);
   const [imageError, setImageError] = useState('');
   const imageFileRef = useRef(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryImages, setGalleryImages] = useState([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryError, setGalleryError] = useState('');
   const setField = (key, val) => setForm((p) => ({ ...p, [key]: val }));
   const setBilingual = (field, lang, val) =>
     setForm((p) => ({ ...p, [field]: { ...p[field], [lang]: val } }));
@@ -111,6 +115,30 @@ function AffairForm({ form, setForm, onSubmit, loading, editTarget }) {
       setImageUploading(false);
       if (imageFileRef.current) imageFileRef.current.value = '';
     }
+  };
+
+  // Image-reuse gallery (2026-09-30): browse imageUrls already used by other
+  // articles and reuse one instead of uploading a fresh file -- costs
+  // nothing extra in S3 storage since no new object is created, just this
+  // article's imageUrl field pointing at an existing one. Works even before
+  // the article is first saved (unlike direct upload, which needs an _id).
+  const openGallery = async () => {
+    setGalleryOpen(true);
+    setGalleryError('');
+    setGalleryLoading(true);
+    try {
+      const { data } = await currentAffairsAPI.imageGallery();
+      setGalleryImages(data.data ?? []);
+    } catch {
+      setGalleryError('Failed to load image library');
+    } finally {
+      setGalleryLoading(false);
+    }
+  };
+
+  const pickFromGallery = (url) => {
+    setField('imageUrl', url);
+    setGalleryOpen(false);
   };
 
   const handleAutoTranslate = async () => {
@@ -176,16 +204,54 @@ function AffairForm({ form, setForm, onSubmit, loading, editTarget }) {
           </div>
           <div className="flex-1">
             <div className="flex gap-2">
-              <input className={input} value={form.imageUrl} onChange={(e) => setField('imageUrl', e.target.value)} placeholder="https://… (or upload below)" />
+              <input className={input} value={form.imageUrl} onChange={(e) => setField('imageUrl', e.target.value)} placeholder="https://… (or upload/pick below)" />
               <input ref={imageFileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
                 onChange={(e) => handleImageUpload(e.target.files?.[0])} />
               <button type="button" disabled={imageUploading || !editTarget} onClick={() => imageFileRef.current?.click()}
-                className="shrink-0 px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                className="shrink-0 px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                title={!editTarget ? 'Save the article first' : 'Upload a new photo'}>
                 {imageUploading ? 'Uploading…' : '📤 Upload'}
+              </button>
+              <button type="button" onClick={openGallery}
+                className="shrink-0 px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+                🖼️ Choose existing
               </button>
             </div>
             {imageError && <p className="text-xs text-red-500 mt-1">{imageError}</p>}
-            {!editTarget && <p className="text-xs text-gray-400 mt-1">Save the article first, then reopen it to upload a photo.</p>}
+            {!editTarget && <p className="text-xs text-gray-400 mt-1">Save the article first to upload a new photo -- reusing an existing one works right away.</p>}
+
+            {galleryOpen && (
+              <div className="mt-3 border border-gray-200 rounded-lg p-3 bg-gray-50">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-600">Images already used by other articles</p>
+                  <button type="button" onClick={() => setGalleryOpen(false)} className="text-xs text-gray-400 hover:text-gray-600">Close</button>
+                </div>
+                {galleryLoading ? (
+                  <p className="text-xs text-gray-400 py-4 text-center">Loading…</p>
+                ) : galleryError ? (
+                  <p className="text-xs text-red-500 py-2">{galleryError}</p>
+                ) : galleryImages.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-4 text-center">No images uploaded yet -- upload one first, then it'll show up here for reuse.</p>
+                ) : (
+                  <div className="grid grid-cols-6 gap-2 max-h-64 overflow-y-auto">
+                    {galleryImages.map((img) => (
+                      <button
+                        type="button"
+                        key={img.imageUrl}
+                        onClick={() => pickFromGallery(img.imageUrl)}
+                        title={`${img.sampleTitle ?? ''} · used by ${img.count} article${img.count === 1 ? '' : 's'}`}
+                        className={`relative aspect-square rounded-lg overflow-hidden border-2 hover:border-primary-500 transition-colors ${form.imageUrl === img.imageUrl ? 'border-primary-600' : 'border-gray-200'}`}
+                      >
+                        <img src={img.imageUrl} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.opacity = 0.2; }} />
+                        {img.count > 1 && (
+                          <span className="absolute bottom-0.5 right-0.5 bg-black/60 text-white text-[9px] px-1 rounded">×{img.count}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
