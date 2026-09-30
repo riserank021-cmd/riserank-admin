@@ -105,6 +105,16 @@ export const uploadAPI = {
       onUploadProgress: onProgress,
     });
   },
+  // Current Affairs cover image (2026-09-30) — article must already exist
+  // (needs its _id), same pattern as teacherAvatar above.
+  currentAffairImage: (articleId, file, onProgress) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return api.post(`/upload/current-affairs/${articleId}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress,
+    });
+  },
 };
 
 // ── Questions ─────────────────────────────────────────────────────────────────

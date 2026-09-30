@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { currentAffairsAPI } from '../api/client';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { currentAffairsAPI, uploadAPI } from '../api/client';
 import { Modal, ConfirmModal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 
@@ -19,6 +19,7 @@ const EMPTY_FORM = {
   publishDate: nowDate(),
   publishTime: nowTime(),
   isPublished: false,
+  imageUrl: '',
 };
 
 function StatusBadge({ status }) {
@@ -45,13 +46,72 @@ async function googleTranslate(text, targetLang = 'hi') {
   } catch { return ''; }
 }
 
-function AffairForm({ form, setForm, onSubmit, loading }) {
+// Resize + re-encode in the browser before upload — cuts a typical 3-6MB
+// phone photo down to roughly 100-300KB (JPEG, max 1600px wide) with no
+// visible quality loss at the size these are actually displayed. This is
+// what keeps S3 storage + bandwidth cost down: every byte saved here is a
+// byte never stored and never re-served to every student who opens the
+// article. Pure browser Canvas API — no new dependency, no backend change.
+function compressImage(file, { maxWidth = 1600, quality = 0.8 } = {}) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const scale = Math.min(1, maxWidth / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { reject(new Error('Compression failed')); return; }
+          resolve(new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' }));
+        },
+        'image/jpeg',
+        quality
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Could not read image')); };
+    img.src = objectUrl;
+  });
+}
+
+function AffairForm({ form, setForm, onSubmit, loading, editTarget }) {
   const [translating, setTranslating] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageError, setImageError] = useState('');
+  const imageFileRef = useRef(null);
   const setField = (key, val) => setForm((p) => ({ ...p, [key]: val }));
   const setBilingual = (field, lang, val) =>
     setForm((p) => ({ ...p, [field]: { ...p[field], [lang]: val } }));
 
   const input = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500';
+
+  const handleImageUpload = async (file) => {
+    if (!file || !editTarget) return;
+    if (!['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(file.type)) {
+      setImageError('Only JPEG, PNG, or WebP images are allowed');
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setImageError('Image too large — max 15MB (it will be compressed automatically)');
+      return;
+    }
+    setImageError('');
+    setImageUploading(true);
+    try {
+      const compressed = await compressImage(file);
+      const { data } = await uploadAPI.currentAffairImage(editTarget._id, compressed);
+      setField('imageUrl', data.data.url);
+    } catch (err) {
+      setImageError(err?.response?.data?.message ?? 'Upload failed');
+    } finally {
+      setImageUploading(false);
+      if (imageFileRef.current) imageFileRef.current.value = '';
+    }
+  };
 
   const handleAutoTranslate = async () => {
     setTranslating(true);
@@ -101,6 +161,34 @@ function AffairForm({ form, setForm, onSubmit, loading }) {
       <BiRow label="Title" field="title" required />
       <BiRow label="Summary" field="summary" multiline />
       <BiRow label="Full Content" field="content" multiline />
+
+      <div>
+        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Cover Image</label>
+        <p className="text-xs text-gray-400 mb-1.5">
+          Shown as the card background in the app's swipe feed. Leave blank to show the RiseRank fallback banner instead.
+          Compressed automatically before upload to keep hosting cost down.
+        </p>
+        <div className="flex gap-3 items-start">
+          <div className="w-20 h-20 shrink-0 rounded-lg border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center">
+            {form.imageUrl
+              ? <img src={form.imageUrl} alt="Cover preview" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+              : <span className="text-[10px] text-gray-400 text-center px-1">No image</span>}
+          </div>
+          <div className="flex-1">
+            <div className="flex gap-2">
+              <input className={input} value={form.imageUrl} onChange={(e) => setField('imageUrl', e.target.value)} placeholder="https://… (or upload below)" />
+              <input ref={imageFileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                onChange={(e) => handleImageUpload(e.target.files?.[0])} />
+              <button type="button" disabled={imageUploading || !editTarget} onClick={() => imageFileRef.current?.click()}
+                className="shrink-0 px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                {imageUploading ? 'Uploading…' : '📤 Upload'}
+              </button>
+            </div>
+            {imageError && <p className="text-xs text-red-500 mt-1">{imageError}</p>}
+            {!editTarget && <p className="text-xs text-gray-400 mt-1">Save the article first, then reopen it to upload a photo.</p>}
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -210,6 +298,7 @@ export default function CurrentAffairs() {
       publishDate: dateObj.toISOString().slice(0, 10),
       publishTime: dateObj.toTimeString().slice(0, 5),
       isPublished: item.status === 'published',
+      imageUrl: item.imageUrl ?? '',
     });
     setModalOpen(true);
   };
@@ -230,6 +319,7 @@ export default function CurrentAffairs() {
       publishedAt,
       tags: form.tags ? form.tags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean) : [],
       examTags: [],
+      imageUrl: form.imageUrl,
       // category & source omitted — category must be ObjectId, source not in schema
     };
     try {
@@ -378,7 +468,7 @@ export default function CurrentAffairs() {
       )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editTarget ? 'Edit Article' : 'New Article'} size="lg">
-        <AffairForm form={form} setForm={setForm} onSubmit={handleSubmit} loading={saving} />
+        <AffairForm form={form} setForm={setForm} onSubmit={handleSubmit} loading={saving} editTarget={editTarget} />
       </Modal>
 
       <ConfirmModal
